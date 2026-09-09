@@ -1,0 +1,5 @@
+#!/bin/bash
+# Install the reviewed local service payload; no code is downloaded here.
+set -euo pipefail
+plugin_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec /usr/bin/python3 -I "$plugin_dir/service/manage.py" install --module school "$@"

@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# School mode's shortcut layer (shell/plugins/school-mode), after elgevan's
+# omarchy-kids-menu, cut down for a child install: while school mode is on,
+# the shortcuts for the apps school mode does not show are unbound and the
+# menu shortcuts open this plugin's filtered menu. The browser keys are left
+# as they are: school mode uses the one browser profile (Peter, 2026-09-03). `exit` reloads the real configuration, so nothing
+# here outlives the mode. A marker under the runtime directory says the layer
+# is up, so a shell that restarts rebuilds it from the real bindings.
+
+set -Eeuo pipefail
+
+PLUGIN_ID=io.github.peterholko.school-mode
+HYPRCTL_BIN=${OMARCHY_SCHOOL_HYPRCTL:-hyprctl}
+RUNTIME_ROOT=${XDG_RUNTIME_DIR:?Run this command in the Omarchy desktop session}
+STATE_DIR=$RUNTIME_ROOT/omarchy-community-school-mode
+ACTIVE_MARKER=$STATE_DIR/shortcut-policy.active
+LOCK_FILE=$STATE_DIR/shortcut-policy.lock
+
+usage() {
+  echo "Usage: shortcut-policy enter | exit | status" >&2
+  exit 2
+}
+
+json_result() {
+  local action=$1 applied=$2 changed=$3 error=${4:-}
+  jq -nc --arg action "$action" --argjson applied "$applied" --argjson changed "$changed" --arg error "$error" \
+    '{version: 1, action: $action, applied: $applied, changed: $changed} + (if $error == "" then {} else {error: $error} end)'
+}
+
+reload_bindings() {
+  local output
+  if ! output=$($HYPRCTL_BIN reload 2>&1); then
+    printf '%s' "$output"
+    return 1
+  fi
+}
+
+umask 077
+[[ ! -L $STATE_DIR ]] || { echo "Refusing a symlink state directory" >&2; exit 1; }
+mkdir -p -- "$STATE_DIR"
+[[ -O $STATE_DIR ]] || { echo "State directory has another owner" >&2; exit 1; }
+chmod 700 "$STATE_DIR"
+[[ ! -L $LOCK_FILE ]] || { echo "Refusing a symlink lock" >&2; exit 1; }
+chmod 700 "$STATE_DIR"
+exec 9>"$LOCK_FILE"
+flock 9
+
+case ${1:-} in
+  status)
+    if [[ -f $ACTIVE_MARKER ]]; then json_result status true 0; else json_result status false 0; fi
+    exit 0
+    ;;
+  exit)
+    if [[ ! -f $ACTIVE_MARKER ]]; then json_result exit false 0; exit 0; fi
+    if error=$(reload_bindings); then
+      rm -f -- "$ACTIVE_MARKER"
+      json_result exit false 0
+      exit 0
+    fi
+    json_result exit true 0 "Could not restore Hyprland bindings: $error"
+    exit 1
+    ;;
+  enter) ;;
+  *) usage ;;
+esac
+
+# A shell reload can build this layer again without leaving it first: start
+# from the real configuration so nothing accumulates.
+if [[ -f $ACTIVE_MARKER ]]; then
+  if ! error=$(reload_bindings); then
+    json_result enter false 0 "Could not reset the previous shortcut layer: $error"
+    exit 1
+  fi
+  rm -f -- "$ACTIVE_MARKER"
+fi
+
+lua_program=""
+changed=0
+append_lua() { printf -v lua_program '%s%s\n' "$lua_program" "$1"; changed=$((changed + 1)); }
+unbind() { append_lua "hl.unbind(\"$1\")"; }
+rebind() { append_lua "hl.unbind(\"$1\")"; append_lua "hl.bind(\"$1\", hl.dsp.exec_cmd([[$2]]), { description = \"$3\" })"; }
+
+# The menu shortcuts open the filtered menu while the stock one is off.
+rebind "SUPER + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"root\"}'" "School mode: Menu"
+rebind "SUPER + ALT + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"apps\"}'" "School mode: Apps"
+
+# Use the filtered menu to launch apps during school mode.
+unbind "SUPER + RETURN"
+unbind "SUPER + SHIFT + F"
+unbind "SUPER + ALT + SHIFT + F"
+unbind "SUPER + SHIFT + B"
+unbind "SUPER + SHIFT + ALT + B"
+unbind "SUPER + SHIFT + N"
+unbind "SUPER + ALT + RETURN"
+unbind "SUPER + CTRL + RETURN"
+unbind "SUPER + SHIFT + M"
+unbind "SUPER + SHIFT + D"
+unbind "SUPER + SHIFT + G"
+unbind "SUPER + SHIFT + O"
+unbind "SUPER + SHIFT + W"
+unbind "SUPER + SHIFT + A"
+unbind "SUPER + SHIFT + C"
+unbind "SUPER + SHIFT + E"
+unbind "SUPER + SHIFT + S"
+unbind "SUPER + SHIFT + Y"
+unbind "SUPER + SHIFT + P"
+unbind "SUPER + SHIFT + X"
+unbind "SUPER + SHIFT + ALT + M"
+unbind "SUPER + SHIFT + ALT + A"
+unbind "SUPER + SHIFT + ALT + E"
+unbind "SUPER + SHIFT + ALT + G"
+unbind "SUPER + SHIFT + ALT + X"
+unbind "SUPER + SHIFT + CTRL + G"
+unbind "SUPER + SHIFT + SLASH"
+
+printf 'version=1\n' >"$ACTIVE_MARKER"
+if ! error=$($HYPRCTL_BIN eval "$lua_program" 2>&1); then
+  reload_bindings >/dev/null 2>&1 || true
+  rm -f -- "$ACTIVE_MARKER"
+  json_result enter false "$changed" "Could not apply the school-mode shortcuts: $error"
+  exit 1
+fi
+json_result enter true "$changed"

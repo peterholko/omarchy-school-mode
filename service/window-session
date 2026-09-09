@@ -1,0 +1,284 @@
+#!/bin/bash
+
+# School mode's window parking (shell/plugins/school-mode), from elgevan's
+# omarchy-kids-menu: when school mode starts, every open window moves to a
+# hidden workspace, and comes back where it was when free time returns.
+# Nothing is closed. `guard` puts back a parked window that surfaced.
+
+set -Eeuo pipefail
+
+ACTION=${1:-status}
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-community-school-mode
+STATE_FILE=$STATE_DIR/windows.json
+LOCK_FILE=$STATE_DIR/windows.lock
+PARENT_WORKSPACE=special:omarchy-community-school-parked
+KIDS_WORKSPACE=name:omarchy-community-school
+
+umask 077
+[[ ! -L $STATE_DIR ]] || { echo "Refusing a symlink state directory" >&2; exit 1; }
+mkdir -p -- "$STATE_DIR"
+[[ -O $STATE_DIR ]] || { echo "State directory has another owner" >&2; exit 1; }
+chmod 700 "$STATE_DIR"
+[[ ! -L $LOCK_FILE ]] || { echo "Refusing a symlink lock" >&2; exit 1; }
+exec 9>"$LOCK_FILE"
+flock -x 9
+
+emit() {
+  jq -cn \
+    --arg action "$1" \
+    --arg status "$2" \
+    --argjson hidden "${3:-0}" \
+    --argjson restored "${4:-0}" \
+    --argjson blocked "${5:-0}" \
+    '{action: $action, status: $status, hidden: $hidden, restored: $restored, blocked: $blocked}'
+}
+
+current_instance() {
+  if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+    printf '%s\n' "$HYPRLAND_INSTANCE_SIGNATURE"
+    return
+  fi
+
+  hyprctl instances -j 2>/dev/null | jq -r '.[0].instance // .[0].signature // empty'
+}
+
+workspace_selector() {
+  local name=${1:-1}
+  if [[ $name == special:* || $name =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$name"
+  else
+    printf 'name:%s\n' "$name"
+  fi
+}
+
+lua_string() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '"%s"' "$value"
+}
+
+move_window() {
+  local workspace=$1 address=$2 workspace_arg window_arg
+  workspace_arg=$(lua_string "$workspace")
+  window_arg=$(lua_string "address:$address")
+  hyprctl --quiet dispatch \
+    "hl.dsp.window.move({ workspace = $workspace_arg, follow = false, window = $window_arg })"
+}
+
+focus_workspace() {
+  local workspace_arg
+  workspace_arg=$(lua_string "$1")
+  hyprctl --quiet dispatch "hl.dsp.focus({ workspace = $workspace_arg })"
+}
+
+focus_window() {
+  local window_arg
+  window_arg=$(lua_string "address:$1")
+  hyprctl --quiet dispatch "hl.dsp.focus({ window = $window_arg })"
+}
+
+set_window_pin() {
+  local action_arg window_arg
+  action_arg=$(lua_string "$1")
+  window_arg=$(lua_string "address:$2")
+  hyprctl --quiet dispatch \
+    "hl.dsp.window.pin({ action = $action_arg, window = $window_arg })"
+}
+
+address_exists() {
+  local address=$1
+  hyprctl -j clients 2>/dev/null \
+    | jq -e --arg address "$address" 'any(.[]; .address == $address)' >/dev/null
+}
+
+active_for_instance() {
+  local instance=$1
+  [[ -f $STATE_FILE ]] \
+    && jq -e --arg instance "$instance" \
+      '.version == 1 and .active == true and .instance == $instance' \
+      "$STATE_FILE" >/dev/null 2>&1
+}
+
+enter_session() {
+  local instance hidden=0 moved=0
+  instance=$(current_instance)
+  [[ -n $instance ]] || { emit enter unavailable; return 1; }
+
+  if active_for_instance "$instance"; then
+    hidden=$(jq -r '.windows | length' "$STATE_FILE")
+    emit enter already-active "$hidden"
+    return
+  fi
+
+  local clients_file active_window_file active_workspace_file state_tmp
+  clients_file=$(mktemp "$STATE_DIR/clients.XXXXXX")
+  active_window_file=$(mktemp "$STATE_DIR/active-window.XXXXXX")
+  active_workspace_file=$(mktemp "$STATE_DIR/active-workspace.XXXXXX")
+  state_tmp=$(mktemp "$STATE_DIR/windows.XXXXXX")
+  trap 'rm -f -- "$clients_file" "$active_window_file" "$active_workspace_file" "$state_tmp"' RETURN
+
+  hyprctl -j clients > "$clients_file"
+  hyprctl -j activewindow > "$active_window_file"
+  hyprctl -j activeworkspace > "$active_workspace_file"
+
+  jq -n \
+    --arg instance "$instance" \
+    --arg parentWorkspace "$PARENT_WORKSPACE" \
+    --arg kidsWorkspace "$KIDS_WORKSPACE" \
+    --arg capturedAt "$(date --iso-8601=seconds)" \
+    --slurpfile clients "$clients_file" \
+    --slurpfile activeWindow "$active_window_file" \
+    --slurpfile activeWorkspace "$active_workspace_file" \
+    '{
+      version: 1,
+      active: true,
+      instance: $instance,
+      parentWorkspace: $parentWorkspace,
+      kidsWorkspace: $kidsWorkspace,
+      capturedAt: $capturedAt,
+      originalActiveWindow: ($activeWindow[0].address // ""),
+      originalActiveWorkspace: ($activeWorkspace[0].name // "1"),
+      windows: [
+        $clients[0][]
+        | select((.mapped // true) == true)
+        | select((.address // "") != "")
+        | select((.workspace.name // "") != $parentWorkspace)
+        | {
+            address,
+            workspace: (.workspace.name // "1"),
+            class: (.class // ""),
+            title: (.title // ""),
+            pinned: (.pinned // false),
+            floating: (.floating // false),
+            fullscreen: (.fullscreen // 0)
+          }
+      ]
+    }' > "$state_tmp"
+
+  mv -- "$state_tmp" "$STATE_FILE"
+  rm -f -- "$clients_file" "$active_window_file" "$active_workspace_file"
+  trap - RETURN
+  hidden=$(jq -r '.windows | length' "$STATE_FILE")
+
+  while IFS=$'\t' read -r address pinned; do
+    [[ $address =~ ^0x[0-9a-fA-F]+$ ]] || continue
+    if [[ $pinned == true ]]; then
+      set_window_pin off "$address" || true
+    fi
+    if move_window "$PARENT_WORKSPACE" "$address"; then
+      moved=$((moved + 1))
+    fi
+  done < <(jq -r '.windows[] | [.address, (.pinned | tostring)] | @tsv' "$STATE_FILE")
+
+  focus_workspace "$KIDS_WORKSPACE"
+  emit enter active "$moved"
+}
+
+exit_session() {
+  local instance restored=0
+  instance=$(current_instance)
+
+  if [[ ! -f $STATE_FILE ]] || ! jq -e '.version == 1 and .active == true' "$STATE_FILE" >/dev/null 2>&1; then
+    emit exit inactive
+    return
+  fi
+
+  if [[ -z $instance || $(jq -r '.instance' "$STATE_FILE") != "$instance" ]]; then
+    local stale_tmp
+    stale_tmp=$(mktemp "$STATE_DIR/windows.XXXXXX")
+    jq --arg endedAt "$(date --iso-8601=seconds)" \
+      '.active = false | .status = "stale-session" | .endedAt = $endedAt' \
+      "$STATE_FILE" > "$stale_tmp"
+    mv -- "$stale_tmp" "$STATE_FILE"
+    emit exit stale-session
+    return
+  fi
+
+  local row address workspace pinned selector
+  while IFS= read -r row; do
+    address=$(base64 -d <<< "$row" | jq -r '.address')
+    workspace=$(base64 -d <<< "$row" | jq -r '.workspace // "1"')
+    pinned=$(base64 -d <<< "$row" | jq -r '.pinned // false')
+    [[ $address =~ ^0x[0-9a-fA-F]+$ ]] || continue
+    address_exists "$address" || continue
+
+    selector=$(workspace_selector "$workspace")
+    if move_window "$selector" "$address"; then
+      restored=$((restored + 1))
+      if [[ $pinned == true ]]; then
+        set_window_pin on "$address" || true
+      fi
+    fi
+  done < <(jq -r '.windows[] | @base64' "$STATE_FILE")
+
+  local original_workspace original_window state_tmp
+  original_workspace=$(jq -r '.originalActiveWorkspace // "1"' "$STATE_FILE")
+  original_window=$(jq -r '.originalActiveWindow // ""' "$STATE_FILE")
+  focus_workspace "$(workspace_selector "$original_workspace")" || true
+  if [[ $original_window =~ ^0x[0-9a-fA-F]+$ ]] && address_exists "$original_window"; then
+    focus_window "$original_window" || true
+  fi
+
+  state_tmp=$(mktemp "$STATE_DIR/windows.XXXXXX")
+  jq \
+    --arg endedAt "$(date --iso-8601=seconds)" \
+    --argjson restored "$restored" \
+    '.active = false | .status = "restored" | .restored = $restored | .endedAt = $endedAt' \
+    "$STATE_FILE" > "$state_tmp"
+  mv -- "$state_tmp" "$STATE_FILE"
+  emit exit restored 0 "$restored"
+}
+
+guard_session() {
+  local instance hidden=0 blocked=0
+  instance=$(current_instance)
+  if [[ -z $instance ]] || ! active_for_instance "$instance"; then
+    emit guard inactive
+    return
+  fi
+
+  hidden=$(jq -r '.windows | length' "$STATE_FILE")
+  local address workspace
+  while IFS= read -r address; do
+    [[ $address =~ ^0x[0-9a-fA-F]+$ ]] || continue
+    address_exists "$address" || continue
+    workspace=$(hyprctl -j clients | jq -r --arg address "$address" \
+      '.[] | select(.address == $address) | .workspace.name // empty')
+    [[ $workspace == "$PARENT_WORKSPACE" ]] && continue
+
+    if move_window "$PARENT_WORKSPACE" "$address"; then
+      blocked=$((blocked + 1))
+    fi
+  done < <(jq -r '.windows[].address' "$STATE_FILE")
+
+  if (( blocked > 0 )); then
+    focus_workspace "$KIDS_WORKSPACE" || true
+  fi
+  emit guard active "$hidden" 0 "$blocked"
+}
+
+status_session() {
+  local instance hidden=0
+  instance=$(current_instance || true)
+  if [[ -n $instance ]] && active_for_instance "$instance"; then
+    hidden=$(jq -r '.windows | length' "$STATE_FILE")
+    emit status active "$hidden"
+  else
+    emit status inactive
+  fi
+}
+
+case "$ACTION" in
+  enter) enter_session ;;
+  exit) exit_session ;;
+  guard) guard_session ;;
+  status) status_session ;;
+  *)
+    printf 'usage: %s {enter|exit|guard|status}\n' "$0" >&2
+    exit 2
+    ;;
+esac

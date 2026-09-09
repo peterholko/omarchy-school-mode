@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/peterholko/omarchy-kids",
+  "commit": "8ab125dbc38a1e228f8de044450b864a8b4fc218",
+  "path": "shell/plugins/school-mode",
+  "exporter": "packaging/community/export.py"
+}

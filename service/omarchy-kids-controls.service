@@ -1,0 +1,22 @@
+[Unit]
+Description=Omarchy community screen-time and school-mode controls
+After=systemd-logind.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /usr/lib/omarchy-kids-controls/runtime.py daemon
+Environment=OMARCHY_PATH=/usr/share/omarchy
+Environment=PATH=/usr/share/omarchy/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=omarchy-kids-controls
+RuntimeDirectoryMode=0755
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ReadWritePaths=/etc/omarchy-kids-controls /var/lib/omarchy-kids-controls /run/omarchy-kids-controls
+
+[Install]
+WantedBy=multi-user.target

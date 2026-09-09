@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.peterholko.school-mode",
+  "name": "School / Free Time",
+  "version": "1.0.0",
+  "author": "Peter Holko",
+  "description": "Scheduled school mode, an app allowlist, and password-protected free time.",
+  "kinds": [
+    "menu",
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "menu": "Menu.qml",
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "School / Free Time",
+    "description": "Scheduled school mode, an app allowlist, and password-protected free time.",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  },
+  "license": "MIT"
+}

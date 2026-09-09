@@ -1,0 +1,6 @@
+{
+  "apps": {"label":"School","provider":"apps"},
+  "style": {"parent":"apps","icon":"","label":"Style","when":"omarchy-cmd-present omarchy-theme-switcher || omarchy-cmd-present omarchy-theme-bg-switcher"},
+  "style.theme": {"icon":"󰸌","label":"Theme","when":"omarchy-cmd-present omarchy-theme-switcher","action":"theme=$(omarchy-theme-switcher); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
+  "style.background": {"icon":"","label":"Background","when":"omarchy-cmd-present omarchy-theme-bg-switcher","action":"background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""}
+}
