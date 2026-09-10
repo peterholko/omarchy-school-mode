@@ -1,3 +1,13 @@
+# School Mode has moved into School & Screen Time
+
+School Mode and Screen Time now form **one plugin with one parent control panel**, including Math Time. New installations should use [School & Screen Time](https://github.com/peterholko/omarchy-screen-time).
+
+For an existing installation, follow the [migration instructions](https://github.com/peterholko/omarchy-screen-time#move-from-the-old-separate-school-mode-plugin). Restore the desktop with this old plugin and disable its UI before enabling the combined version. Upgrade the shared service using the new plugin's `setup --upgrade`; existing schedules, budgets, passwords, history and enrollment choices are retained. Do not remove the old service module or its saved state to migrate.
+
+This repository keeps the legacy plugin available for existing users. The documentation below describes that older separate plugin.
+
+---
+
 # School / Free Time
 
 Scheduled school mode, an app allowlist, and password-protected free time.
