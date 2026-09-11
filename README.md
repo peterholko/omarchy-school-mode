@@ -1,6 +1,6 @@
 # School / Free Time
 
-Scheduled school mode, an application whitelist, and password-protected free time. This is the standalone School Mode plugin, with its own parent settings panel.
+Scheduled school mode, approved apps in both School and Free Time, and password-protected mode changes. This is the standalone School Mode plugin, with its own parent settings panel.
 
 A community plugin for **Omarchy Quattro with the Quickshell plugin system**. It works on a regular Omarchy installation; an Omarchy Kids ISO or fork is not required. The plugin ID is `io.github.peterholko.school-mode`.
 
@@ -28,17 +28,19 @@ Only the named account is enrolled. Root owns the password hash, schedules, budg
 
 These are desktop controls for a cooperative family setup. An account that retains administrator access can disable the service, and user-controlled shell plugins are not an application sandbox. This installer does not convert or demote OS accounts. It refuses to enroll an account already configured for the original Omarchy Kids backend, to prevent two services enforcing different policies.
 
-### Allow the temporary school desktop changes
+### Enable the approved desktop
 
-In the enrolled user's desktop, run the following **without sudo**. This explicitly permits School Mode to temporarily hide the stock launcher, route `Super+Space` and `Super+Alt+Space` to the school app list, disable the standard Omarchy app-launch shortcuts, quiet notifications and park existing windows. Free Time restores the previous state; windows are not closed.
+In the enrolled user's desktop, run the following **without sudo**. This permits the plugin to hide the stock launcher and route `Super+Space` and `Super+Alt+Space` to the approved app list in both modes. School Mode disables the standard app-launch shortcuts, quiets notifications and parks existing windows. Free Time restores those windows and the previous notification preference while retaining the approved launcher and child shortcuts; windows are not closed.
 
 ```bash
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
-Click the book/sun widget to enter School Mode or request Free Time. Free Time and changes to the schedule or allowed apps require the controls parent password; the password field displays checking feedback. The settings include optional access to Number Grove, Paw Post Typing and Pawberry Pet Hotel when their desktop launchers are installed. Other desktop IDs can be configured with the client’s `config patch` command.
+Click the book/sun widget to enter School Mode or request Free Time. Free Time and changes to the school schedule or school app list require the controls parent password; the password field displays checking feedback. The settings include optional school access to Number Grove, Paw Post Typing and Pawberry Pet Hotel when their desktop launchers are installed. Other school desktop IDs can be configured with the client’s `config patch` command.
 
-There is one browser profile. This plugin does not filter websites; use a separate DNS/browser policy if needed. The filtered launcher and standard shortcut changes do not prevent custom shortcuts, terminal commands or manually started applications.
+Free Time restores the existing [school and creativity app policy](docs/free-time-apps.md), plus the three learning games. It does not expose every installed app. The policy matches exact desktop IDs; Discord, social/AI apps, supervision-only apps and unknown newly installed apps stay outside the launcher and its search. The default Omarchy menu's Community/Discord and app-install actions are not part of either child menu. Both retain Theme and Background under Style. Only installed apps appear; this update installs no applications.
+
+There is one browser profile. This plugin does not filter websites; use a separate DNS/browser policy if needed. Free Time restores the approved browser, Files, Omawrite, Obsidian, Cliamp, Google Maps, Khan Academy and Wikipedia shortcuts through the same app checks as the launcher. As in the original child profile, `Super+Return` remains available in Free Time for parent maintenance. The filtered launcher and standard shortcut changes do not prevent custom shortcuts, terminal commands or manually started applications, and do not terminate existing processes.
 
 The desktop helper journals recovery before applying changes and changes only its own `disabledPlugins` entry in `~/.config/omarchy/shell.json`. Other bar and shell settings are preserved. It keeps a first-use backup under `~/.local/state/omarchy-community-school-mode/`. Custom `XDG_CONFIG_HOME` and `XDG_STATE_HOME` are respected by the helper. Run `school-desktop.py disable` before disabling or removing the plugin; this also revokes desktop consent.
 
@@ -82,11 +84,14 @@ The shared service uses Python 3's standard library, systemd/logind and Omarchy'
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes
 omarchy restart shell
+python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
-Version 1.0.1 fixes the empty school launcher on shells that do not expose their application library to community plugins. School Mode loads the matching app library from the installed Omarchy, then filters it using the saved approved list. Both the shared and local library paths refresh when apps or the approved list change, and switching between School and Free Time updates an open launcher immediately.
+Version 1.1.0 restores the Free Time app policy that was omitted from the standalone export. Returning from School Mode keeps the approved launcher and child shortcuts active, restores parked windows and notifications, and preserves the existing school app list. Earlier desktop recovery journals are retained and upgraded, so disabling desktop controls still restores the original menu and bindings. The final command above applies the restored policy in the current desktop session.
 
-This is a launcher-only update; it needs no service setup, and the saved approved apps, parent password and schedules are retained. For future service changes, review the payload before updating the root-owned copy explicitly. Only use the following command if this standalone service is the installed version; a newer shared service from a game must use its matching setup instead:
+The app-library compatibility fix from 1.0.1 is included: when the shell does not supply an app library to community menus, School Mode loads the matching implementation from the installed Omarchy. Both library paths refresh as apps, school approvals or modes change.
+
+This updates the launcher and user-session helpers; it needs no privileged service setup. The saved school approvals, parent password, schedules and Screen Time integration are retained. For future service changes, review the payload before updating the root-owned copy explicitly. Only use the following command if this standalone service is the installed version; a newer shared service from a game must use its matching setup instead:
 
 ```bash
 sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME --upgrade
@@ -119,6 +124,7 @@ MIT. See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md) for retained co
 
 ```bash
 omarchy plugin validate .
+python3 -m unittest discover -s tests -v
 ```
 
-These packages are checked with the upstream manifest validator and local source tests. Full desktop enforcement, systemd installation and removal require validation on an actual Omarchy laptop. There are no GitHub Actions workflows in this repository.
+The local tests require PySide6, Bash and jq. They run the actual menu adapter in Qt with fixture desktop entries and verify desktop transitions, recovery, and shortcut commands without changing a running desktop. The upstream manifest validator is also used. Full desktop behavior, systemd installation and removal require validation on an actual Omarchy laptop. There are no GitHub Actions workflows in this repository.

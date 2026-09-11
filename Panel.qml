@@ -246,7 +246,7 @@ Panel {
           wrapMode: Text.WordWrap
           text: root.schoolMode
             ? "The menu shows the school apps, their shortcuts alone work, notifications are quiet, and the browser keeps your account. Free-time windows are parked and come back after."
-            : "The whole launcher, notifications, and the browser with your account. School hours switch to school mode on their own."
+            : "Free Time shows the approved school and creativity apps and the three learning games. Notifications and your browser account stay available. School hours switch to School Mode automatically."
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption

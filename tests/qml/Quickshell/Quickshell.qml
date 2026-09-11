@@ -2,6 +2,8 @@ pragma Singleton
 import QtQml
 
 QtObject {
+  property var detachedCommands: []
   function env(name) { return "/nonexistent-school-menu-test" }
-  function execDetached(command) { throw new Error("Desktop commands must not run in this test") }
+  // Record the request without starting any process.
+  function execDetached(command) { detachedCommands = detachedCommands.concat([command]) }
 }

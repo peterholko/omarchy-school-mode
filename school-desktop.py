@@ -1,11 +1,12 @@
 """Consented, reversible desktop effects, run only as the desktop user.
 
-enable grants permission to temporarily hide the stock launcher, quiet
-notifications, park windows and redirect standard app shortcuts. disable
-revokes that permission and restores the recorded state. No root execution.
+enable applies the approved launcher and shortcuts in School and Free Time.
+School additionally quiets notifications and parks windows. disable restores
+the recorded desktop state. No root execution.
 """
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,32 +71,74 @@ def menu(disabled):
         write(CONFIG, current)
 
 
-def enter(journal):
+def shortcuts_ready(mode):
+    runtime = os.environ.get('XDG_RUNTIME_DIR')
+    if not runtime:
+        return False
+    marker = Path(runtime) / 'omarchy-community-school-mode/shortcut-policy.active'
+    if marker.is_symlink() or not marker.is_file():
+        return False
+    lines = marker.read_text().splitlines()
+    return 'version=2' in lines and f'mode={mode}' in lines
+
+
+def enter(journal, mode):
     instance = os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')
     if not journal:
         dnd = command('omarchy-shell', 'notifications', 'dndState')
         if dnd not in ('on', 'off'):
             raise ValueError('notification service is not ready')
         config = shell_config()
-        journal = {'version': 1, 'menuWasDisabled': 'omarchy.menu' in config.get('disabledPlugins', []),
-                   'dnd': dnd, 'effectsApplied': False, 'instance': instance}
+        journal = {'version': 2, 'menuWasDisabled': 'omarchy.menu' in config.get('disabledPlugins', []),
+                   'dnd': dnd, 'schoolActive': False, 'appliedMode': '', 'instance': instance}
         # Persist recovery before changing anything. Keep a one-time full
         # backup for inspection; restoration changes only our own setting.
         if CONFIG.exists() and not (STATE / 'shell.before-school.json').exists():
             write(STATE / 'shell.before-school.json', config)
         write(JOURNAL, journal)
+    elif journal.get('version') == 1:
+        # A v1 journal was only created while entering school. Preserve its
+        # original recovery values, including partially applied effects.
+        journal['version'] = 2
+        journal['schoolActive'] = True
+        journal['appliedMode'] = 'school' if journal.get('effectsApplied') else ''
+        write(JOURNAL, journal)
     if instance and instance != journal.get('instance'):
-        journal['effectsApplied'] = False
+        journal['appliedMode'] = ''
         journal['instance'] = instance
         write(JOURNAL, journal)
-    if not journal.get('effectsApplied'):
-        command('/bin/bash', str(SOURCE / 'window-session'), 'enter')
-        command('/bin/bash', str(SOURCE / 'shortcut-policy'), 'enter')
-        menu(True)
-        command('omarchy-shell', 'notifications', 'setDnd', 'on')
-        journal['effectsApplied'] = True
+
+    # Free Time is still a child's desktop. Never restore the unrestricted
+    # launcher as an intermediate step when changing modes.
+    menu(True)
+    if mode == 'school':
+        if not journal.get('schoolActive'):
+            dnd = command('omarchy-shell', 'notifications', 'dndState')
+            if dnd not in ('on', 'off'):
+                raise ValueError('notification service is not ready')
+            journal['dnd'] = dnd
+            journal['schoolActive'] = True
+            journal['appliedMode'] = ''
+            write(JOURNAL, journal)
+        if journal.get('appliedMode') != 'school':
+            command('/bin/bash', str(SOURCE / 'window-session'), 'enter')
+            command('omarchy-shell', 'notifications', 'setDnd', 'on')
+    elif journal.get('schoolActive'):
+        command('/bin/bash', str(SOURCE / 'window-session'), 'exit')
+        command('omarchy-shell', 'notifications', 'setDnd', journal['dnd'])
+        journal['schoolActive'] = False
+        journal['appliedMode'] = ''
         write(JOURNAL, journal)
-    command('/bin/bash', str(SOURCE / 'window-session'), 'guard')
+
+    shortcut_revision = hashlib.sha256((SOURCE / 'shortcut-policy').read_bytes()).hexdigest()
+    if (journal.get('appliedMode') != mode or journal.get('shortcutRevision') != shortcut_revision
+            or not shortcuts_ready(mode)):
+        command('/bin/bash', str(SOURCE / 'shortcut-policy'), 'enter', mode)
+        journal['appliedMode'] = mode
+        journal['shortcutRevision'] = shortcut_revision
+        write(JOURNAL, journal)
+    if mode == 'school':
+        command('/bin/bash', str(SOURCE / 'window-session'), 'guard')
 
 
 def restore(journal):
@@ -106,9 +149,11 @@ def restore(journal):
     if not journal.get('menuWasDisabled'):
         menu(False)
     errors = []
-    for args in [('/bin/bash', str(SOURCE / 'window-session'), 'exit'),
-                 ('/bin/bash', str(SOURCE / 'shortcut-policy'), 'exit'),
-                 ('omarchy-shell', 'notifications', 'setDnd', journal['dnd'])]:
+    actions = [('/bin/bash', str(SOURCE / 'window-session'), 'exit'),
+               ('/bin/bash', str(SOURCE / 'shortcut-policy'), 'exit')]
+    if journal.get('schoolActive', journal.get('version') == 1):
+        actions.append(('omarchy-shell', 'notifications', 'setDnd', journal['dnd']))
+    for args in actions:
         try:
             command(*args)
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
@@ -134,8 +179,8 @@ def synchronize():
         raise ValueError('waiting for valid school status')
     if status.get('enabled') and status.get('mode') not in ('school', 'free'):
         raise ValueError('waiting for valid school mode')
-    if status.get('enabled') and status.get('mode') == 'school':
-        enter(journal)
+    if status.get('enabled'):
+        enter(journal, status['mode'])
     else:
         restore(journal)
 

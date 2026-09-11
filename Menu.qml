@@ -1,12 +1,13 @@
 import Quickshell
 import QtQuick
 import "Allowlist.js" as Allowlist
+import "FreeTimeApps.js" as FreeTimeApps
 import "SchoolBrowser.js" as SchoolBrowser
 
 // The menu of a child install, after elgevan's omarchy-kids-menu: the menu
 // implementation shipped by the running Omarchy, loaded here and pointed at
-// a filtered view of the installed apps while school mode is on. In free
-// time it is the stock menu with the stock definitions.
+// a filtered view of the installed apps. School uses its saved parent list;
+// Free Time uses the family's existing school-and-creativity app policy.
 Loader {
   id: root
 
@@ -15,6 +16,7 @@ Loader {
   property var manifest: null
   property string pendingPayload: ""
   property bool hasPendingPayload: false
+  readonly property bool opened: item ? item.opened === true : false
 
   readonly property var shellAppLibrary: root.shell && root.shell.appLibrary
     && typeof root.shell.appLibrary.sortedEntries === "function" ? root.shell.appLibrary : null
@@ -23,6 +25,11 @@ Loader {
     ? shell.serviceFor("io.github.peterholko.school-mode")
     : null
   readonly property bool schoolMode: root.modeService ? root.modeService.schoolMode === true : false
+  // Only a confirmed disabled enrollment restores the unrestricted menu.
+  // While status is loading, do not briefly expose the full application set.
+  readonly property bool restrictApps: !root.modeService || !root.modeService.connected || root.modeService.schoolEnabled === true
+  readonly property var approvedDesktopIds: !root.modeService || !root.modeService.schoolEnabled ? []
+    : (root.schoolMode ? root.modeService.allowedDesktopIds : FreeTimeApps.DESKTOP_IDS)
   readonly property string pluginRoot: decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")).replace(/\/$/, "")
   readonly property string homeDir: Quickshell.env("HOME")
 
@@ -47,7 +54,7 @@ Loader {
   })
 
   // The stock menu keeps its behaviour, but sees a filtered, read-only view
-  // of DesktopEntries. remove() is a no-op: school mode uninstalls nothing.
+  // of DesktopEntries. Neither child mode uninstalls applications.
   QtObject {
     id: filteredAppLibrary
     signal appsChanged()
@@ -55,8 +62,7 @@ Loader {
     function sortedEntries(query) {
       if (!root.sourceAppLibrary) return []
       var rows = root.sourceAppLibrary.sortedEntries(query)
-      if (!root.schoolMode) return rows
-      return root.modeService ? Allowlist.filterRows(rows, root.modeService.allowedDesktopIds) : []
+      return root.restrictApps ? Allowlist.filterRows(rows, root.approvedDesktopIds) : rows
     }
 
     function entryFor(desktopId) {
@@ -77,10 +83,10 @@ Loader {
 
     function launch(desktopId, name) {
       if (!root.sourceAppLibrary) return
-      if (root.schoolMode && !Allowlist.contains(root.modeService.allowedDesktopIds, desktopId)) return
+      if (root.restrictApps && !Allowlist.contains(root.approvedDesktopIds, desktopId)) return
       // With a separate school profile, the browser and every web app open
       // in it; with one profile, the ordinary way.
-      if (SchoolBrowser.SEPARATE_PROFILE) {
+      if (root.schoolMode && SchoolBrowser.SEPARATE_PROFILE) {
         var entry = filteredAppLibrary.entryFor(desktopId)
         var webAppUrl = SchoolBrowser.webAppUrl(entry ? entry.command : [], entry ? entry.execString : "")
         if (SchoolBrowser.isBrowser(desktopId) || webAppUrl) {
@@ -98,11 +104,11 @@ Loader {
     function refreshIcons() { if (root.sourceAppLibrary) root.sourceAppLibrary.refreshIcons() }
 
     function remove(desktopId, name) {
-      if (!root.schoolMode && root.sourceAppLibrary) {
+      if (!root.restrictApps && root.sourceAppLibrary) {
         root.sourceAppLibrary.remove(desktopId, name)
         return
       }
-      Quickshell.execDetached(["omarchy-notification-send", "School mode only filters the menu; a parent changes the list in the School / Free Time settings."])
+      Quickshell.execDetached(["omarchy-notification-send", "School / Free Time filters the launcher; app removal is a parent task."])
     }
   }
 
@@ -135,11 +141,13 @@ Loader {
   // Refresh after this binding changes; the service signal can arrive before
   // root.schoolMode has caught up, leaving the previous mode's cached rows.
   onSchoolModeChanged: configureMenu()
+  onRestrictAppsChanged: configureMenu()
+  onApprovedDesktopIdsChanged: filteredAppLibrary.appsChanged()
 
-  // In school mode every route but Style lands on the apps list.
+  // Both child modes use their curated menu, including search and deep links.
   function normalizedPayload(payloadJson) {
     var raw = payloadJson || "{}"
-    if (!root.schoolMode) return raw
+    if (!root.restrictApps) return raw
     try {
       var payload = JSON.parse(raw)
       if (payload && payload.mode !== "select" && payload.mode !== "input") {
@@ -160,21 +168,30 @@ Loader {
   }
 
   function launchSchoolBrowser() {
-    if (!root.schoolMode || !SchoolBrowser.SEPARATE_PROFILE) {
-      Quickshell.execDetached(["omarchy-launch-browser"])
-      return root.schoolMode ? "ok" : "free"
-    }
-    Quickshell.execDetached(SchoolBrowser.launchCommand(root.homeDir, ""))
-    root.guardAppLaunch()
-    return "ok"
+    return launchAllowedApp(JSON.stringify({ desktopId: "chromium", name: "Chromium" }))
   }
 
   function launchAllowedApp(payloadJson) {
-    if (!root.schoolMode || !root.modeService) return "inactive"
+    if (!root.modeService || !root.modeService.schoolEnabled) return "inactive"
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (error) { return "invalid" }
     var desktopId = SchoolBrowser.normalizeDesktopId(payload.desktopId)
-    if (!desktopId || !root.modeService.isAllowed(desktopId)) return "blocked"
+    if (!desktopId || !Allowlist.contains(root.approvedDesktopIds, desktopId)) return "blocked"
+    if (!filteredAppLibrary.entryFor(desktopId)) return "unavailable"
+    // Preserve the two standard shortcut variants after checking the same
+    // app approval. No caller-supplied command or arbitrary flags are run.
+    var variant = String(payload.variant || "")
+    if (variant === "private" && desktopId === "chromium") {
+      Quickshell.execDetached(["uwsm-app", "--", "chromium", "--incognito"])
+      root.guardAppLaunch()
+      return "ok"
+    }
+    if (variant === "cwd" && desktopId === "org.gnome.Nautilus") {
+      Quickshell.execDetached(["omarchy-launch-nautilus-cwd"])
+      root.guardAppLaunch()
+      return "ok"
+    }
+    if (variant !== "") return "invalid"
     filteredAppLibrary.launch(desktopId, String(payload.name || desktopId))
     return "ok"
   }
@@ -182,10 +199,10 @@ Loader {
   function configureMenu() {
     if (!item) return
     item.omarchyPath = root.omarchyPath
-    item.shell = root.schoolMode || !root.shellAppLibrary ? filteredShell : root.shell
+    item.shell = root.restrictApps || !root.shellAppLibrary ? filteredShell : root.shell
     item.manifest = root.manifest
-    if (root.schoolMode && root.pluginRoot) {
-      item.defaultMenuPath = root.pluginRoot + "/school-menu.jsonc"
+    if (root.restrictApps && root.pluginRoot) {
+      item.defaultMenuPath = root.pluginRoot + (root.schoolMode ? "/school-menu.jsonc" : "/free-time-menu.jsonc")
       item.userMenuPath = root.pluginRoot + "/empty-menu.jsonc"
       item.refresh()
     } else if (root.omarchyPath) {

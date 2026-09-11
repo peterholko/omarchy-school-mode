@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import "shell/services"
 
 Item {
@@ -8,6 +9,8 @@ Item {
   property string installedPath: ""
   AppLibrary { id: sharedLibrary }
   property QtObject mode: QtObject {
+    property bool connected: true
+    property bool schoolEnabled: true
     property bool schoolMode: true
     property var allowedDesktopIds: ["chromium.desktop", "org.gnome.Nautilus", "Khan Academy"]
     signal allowlistChanged()
@@ -45,6 +48,17 @@ Item {
     } else if (action === "free") mode.schoolMode = false
     else if (action === "school") mode.schoolMode = true
     else if (action === "remove-free") menu.shell.appLibrary.remove("steam", "Steam")
+    else if (action === "launch-discord") menu.shell.appLibrary.launch("Discord", "Discord")
+    else if (action === "launch-pinta") menu.shell.appLibrary.launch("com.github.PintaProject.Pinta", "Pinta")
+    else if (action === "discord-shortcut") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"Discord"}')})
+    else if (action === "pinta-shortcut") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"com.github.PintaProject.Pinta"}')})
+    else if (action === "private-shortcut") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"chromium","variant":"private"}'), commands: Quickshell.detachedCommands})
+    else if (action === "cwd-shortcut") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"org.gnome.Nautilus","variant":"cwd"}'), commands: Quickshell.detachedCommands})
+    else if (action === "invalid-variant") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"chromium","variant":"shell"}'), commands: Quickshell.detachedCommands})
+    else if (action === "community-route") plugin.item.open('{"menu":"learn.community"}')
+    else if (action === "disabled") mode.schoolEnabled = false
+    else if (action === "loading") { mode.connected = false; mode.schoolEnabled = false; mode.schoolMode = false }
+    else if (action === "disconnect") mode.connected = false
     else if (action === "search") { menu.query = "files"; menu.mergeApps() }
     else if (action === "empty") mode.allowedDesktopIds = []
     else if (action === "supply-library") root.exposeLibrary = true

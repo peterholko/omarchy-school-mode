@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.peterholko.school-mode",
   "name": "School / Free Time",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "Peter Holko",
   "description": "Scheduled school mode, an app allowlist, and password-protected free time.",
   "kinds": [
