@@ -79,18 +79,24 @@ def shortcuts_ready(mode):
     if marker.is_symlink() or not marker.is_file():
         return False
     lines = marker.read_text().splitlines()
-    return 'version=2' in lines and f'mode={mode}' in lines
+    if 'version=2' not in lines or f'mode={mode}' not in lines:
+        return False
+    # A compositor reload discards the live bindings without removing files
+    # in XDG_RUNTIME_DIR. Inspect the live layer as well as its receipt. Use
+    # text output: some supported Hyprland versions emit invalid binds JSON.
+    descriptions = {line.strip().removeprefix('description: ')
+                    for line in command('hyprctl', 'binds').splitlines()
+                    if line.strip().startswith('description: ')}
+    return {'School / Free Time: Menu', 'School / Free Time: Apps'} <= descriptions
 
 
-def enter(journal, mode):
+def enter(journal, mode, effects=True):
     instance = os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')
     if not journal:
-        dnd = command('omarchy-shell', 'notifications', 'dndState')
-        if dnd not in ('on', 'off'):
-            raise ValueError('notification service is not ready')
         config = shell_config()
         journal = {'version': 2, 'menuWasDisabled': 'omarchy.menu' in config.get('disabledPlugins', []),
-                   'dnd': dnd, 'schoolActive': False, 'appliedMode': '', 'instance': instance}
+                   'dnd': 'off', 'dndPending': True, 'schoolActive': False,
+                   'schoolEffectsApplied': False, 'appliedMode': '', 'instance': instance}
         # Persist recovery before changing anything. Keep a one-time full
         # backup for inspection; restoration changes only our own setting.
         if CONFIG.exists() and not (STATE / 'shell.before-school.json').exists():
@@ -103,32 +109,19 @@ def enter(journal, mode):
         journal['schoolActive'] = True
         journal['appliedMode'] = 'school' if journal.get('effectsApplied') else ''
         write(JOURNAL, journal)
+    # Earlier journals used appliedMode for both bindings and school effects.
+    # Keep those receipts separate so one failed effect cannot block the menu.
+    journal.setdefault('schoolEffectsApplied',
+                       journal.get('schoolActive', False) and journal.get('appliedMode') == 'school')
     if instance and instance != journal.get('instance'):
         journal['appliedMode'] = ''
+        journal['schoolEffectsApplied'] = False
         journal['instance'] = instance
         write(JOURNAL, journal)
 
     # Free Time is still a child's desktop. Never restore the unrestricted
     # launcher as an intermediate step when changing modes.
     menu(True)
-    if mode == 'school':
-        if not journal.get('schoolActive'):
-            dnd = command('omarchy-shell', 'notifications', 'dndState')
-            if dnd not in ('on', 'off'):
-                raise ValueError('notification service is not ready')
-            journal['dnd'] = dnd
-            journal['schoolActive'] = True
-            journal['appliedMode'] = ''
-            write(JOURNAL, journal)
-        if journal.get('appliedMode') != 'school':
-            command('/bin/bash', str(SOURCE / 'window-session'), 'enter')
-            command('omarchy-shell', 'notifications', 'setDnd', 'on')
-    elif journal.get('schoolActive'):
-        command('/bin/bash', str(SOURCE / 'window-session'), 'exit')
-        command('omarchy-shell', 'notifications', 'setDnd', journal['dnd'])
-        journal['schoolActive'] = False
-        journal['appliedMode'] = ''
-        write(JOURNAL, journal)
 
     shortcut_revision = hashlib.sha256((SOURCE / 'shortcut-policy').read_bytes()).hexdigest()
     if (journal.get('appliedMode') != mode or journal.get('shortcutRevision') != shortcut_revision
@@ -136,6 +129,35 @@ def enter(journal, mode):
         command('/bin/bash', str(SOURCE / 'shortcut-policy'), 'enter', mode)
         journal['appliedMode'] = mode
         journal['shortcutRevision'] = shortcut_revision
+        write(JOURNAL, journal)
+
+    # During startup, protect the launcher even while the policy service is
+    # unavailable. Wait for authoritative status before moving any windows.
+    if not effects:
+        return
+    if journal.get('dndPending') or (mode == 'school' and not journal.get('schoolActive')):
+        dnd = command('omarchy-shell', 'notifications', 'dndState')
+        if dnd not in ('on', 'off'):
+            raise ValueError('notification service is not ready')
+        journal['dnd'] = dnd
+        journal['dndPending'] = False
+        write(JOURNAL, journal)
+    if mode == 'school':
+        if not journal.get('schoolActive'):
+            journal['schoolActive'] = True
+            journal['schoolEffectsApplied'] = False
+            write(JOURNAL, journal)
+        if not journal.get('schoolEffectsApplied'):
+            command('/bin/bash', str(SOURCE / 'window-session'), 'enter')
+            command('omarchy-shell', 'notifications', 'setDnd', 'on')
+            journal['schoolEffectsApplied'] = True
+            write(JOURNAL, journal)
+    elif journal.get('schoolActive'):
+        journal['schoolEffectsApplied'] = False
+        write(JOURNAL, journal)
+        command('/bin/bash', str(SOURCE / 'window-session'), 'exit')
+        command('omarchy-shell', 'notifications', 'setDnd', journal['dnd'])
+        journal['schoolActive'] = False
         write(JOURNAL, journal)
     if mode == 'school':
         command('/bin/bash', str(SOURCE / 'window-session'), 'guard')
@@ -169,16 +191,20 @@ def synchronize():
         restore(journal)
         return
     username = pwd.getpwuid(os.getuid()).pw_name
-    status = read(Path('/var/lib/omarchy-kids-controls/status') / username / 'school-mode/status.json')
-    if status is None:
-        # Missing status must not accidentally release an active policy.
-        if journal:
-            raise ValueError('waiting for the school controls service')
-        return
-    if status.get('schemaVersion') != 1 or not isinstance(status.get('enabled'), bool):
-        raise ValueError('waiting for valid school status')
-    if status.get('enabled') and status.get('mode') not in ('school', 'free'):
-        raise ValueError('waiting for valid school mode')
+    try:
+        status = read(Path('/var/lib/omarchy-kids-controls/status') / username / 'school-mode/status.json')
+    except (ValueError, OSError):
+        status = None
+    valid = (isinstance(status, dict) and status.get('schemaVersion') == 1
+             and isinstance(status.get('enabled'), bool)
+             and (not status['enabled'] or status.get('mode') in ('school', 'free')))
+    if not valid:
+        # A reboot loses runtime bindings, so merely keeping yesterday's
+        # journal is insufficient. Reapply the restrictive startup shortcuts;
+        # the menu shows no apps until it has valid status. Do not park windows
+        # or change notifications until the service confirms the actual mode.
+        enter(journal, 'school', effects=False)
+        raise ValueError('waiting for valid school status from the controls service')
     if status.get('enabled'):
         enter(journal, status['mode'])
     else:

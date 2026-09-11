@@ -11,7 +11,7 @@ function parseStatus(rawText) {
   } catch (error) {
     return fallback
   }
-  if (!parsed || typeof parsed !== "object") return fallback
+  if (!parsed || typeof parsed !== "object" || parsed.schemaVersion !== 1) return fallback
   if (typeof parsed.enabled !== "boolean" || (parsed.enabled && parsed.mode !== "school" && parsed.mode !== "free")) return fallback
   return {
     valid: true,

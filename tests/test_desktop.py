@@ -37,6 +37,7 @@ class DesktopTest(unittest.TestCase):
         self.calls = []
         self.dnd = "off"
         self.failure = None
+        self.live_shortcuts = False
         original_read = self.desktop.read
 
         def read(path, default=None):
@@ -54,15 +55,20 @@ class DesktopTest(unittest.TestCase):
         self.calls.append(args)
         if self.failure and self.failure(args):
             raise ValueError("simulated desktop command failure")
+        if args == ("hyprctl", "binds"):
+            return ("bind\n\tdescription: School / Free Time: Menu\n"
+                    "bind\n\tdescription: School / Free Time: Apps\n") if self.live_shortcuts else "bind\n\tdescription: Omarchy menu\n"
         if args[:2] == ("omarchy-shell", "notifications"):
             if args[2] == "dndState":
                 return self.dnd
             self.dnd = args[3]
         if len(args) > 2 and Path(args[1]).name == "shortcut-policy":
             if args[2] == "enter":
+                self.live_shortcuts = True
                 self.marker.parent.mkdir(parents=True, exist_ok=True)
                 self.marker.write_text(f"version=2\nmode={args[3]}\n")
             else:
+                self.live_shortcuts = False
                 self.marker.unlink(missing_ok=True)
         return "ok"
 
@@ -140,7 +146,7 @@ class DesktopTest(unittest.TestCase):
 
     def test_missing_or_invalid_status_retains_restrictions(self):
         self.desktop.synchronize()
-        for status in (None, {"schemaVersion": 1, "enabled": True, "mode": "broken"}):
+        for status in (None, [], {}, {"schemaVersion": 1, "enabled": True, "mode": "broken"}):
             with self.subTest(status=status):
                 self.status = status
                 before = len(self.calls)
@@ -148,7 +154,9 @@ class DesktopTest(unittest.TestCase):
                     self.desktop.synchronize()
                 self.assertTrue(self.launcher_disabled())
                 self.assertTrue(self.desktop.JOURNAL.exists())
-                self.assertEqual(len(self.calls), before)
+                self.assertFalse(any(args[:2] == ("omarchy-shell", "notifications")
+                    or (len(args) > 2 and Path(args[1]).name == "window-session") for args in self.calls[before:]))
+                self.assertEqual(self.desktop.read(self.desktop.JOURNAL)["appliedMode"], "school")
 
     def test_failed_transition_keeps_recovery_and_retries(self):
         self.status["mode"] = "school"
@@ -176,20 +184,113 @@ class DesktopTest(unittest.TestCase):
         self.desktop.synchronize()
         self.assertEqual(len(self.calls_for("shortcut-policy", "enter")), 4)
 
-    def test_returning_to_school_after_partial_free_time_transition_reapplies_school_effects(self):
+    def test_returning_to_school_after_failed_free_time_restore_reapplies_school_effects(self):
         self.status["mode"] = "school"
         self.desktop.synchronize()
         self.status["mode"] = "free"
-        self.failure = lambda args: len(args) > 3 and Path(args[1]).name == "shortcut-policy" and args[-1] == "free"
+        self.failure = lambda args: args == ("omarchy-shell", "notifications", "setDnd", "off")
         with self.assertRaises(ValueError):
             self.desktop.synchronize()
-        self.assertEqual(self.dnd, "off")
+        self.assertEqual(len(self.calls_for("window-session", "exit")), 1)
         self.failure = None
         self.status["mode"] = "school"
         self.desktop.synchronize()
         self.assertEqual(len(self.calls_for("window-session", "enter")), 2)
         self.assertEqual(self.dnd, "on")
         self.assertTrue(self.launcher_disabled())
+
+    def test_reboot_reapplies_school_shortcuts_before_waiting_for_status(self):
+        self.status["mode"] = "school"
+        self.desktop.synchronize()
+        self.marker.unlink()
+        self.live_shortcuts = False
+        os.environ["HYPRLAND_INSTANCE_SIGNATURE"] = "after-reboot"
+        self.status = None
+        with self.assertRaisesRegex(ValueError, "waiting"):
+            self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertTrue(self.live_shortcuts)
+        self.assertEqual(self.calls_for("shortcut-policy", "enter")[-1][-1], "school")
+
+    def test_first_login_without_status_keeps_stock_launcher_unavailable(self):
+        self.status = None
+        with self.assertRaisesRegex(ValueError, "waiting"):
+            self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertTrue(self.live_shortcuts)
+        self.assertFalse(self.desktop.read(self.desktop.JOURNAL)["menuWasDisabled"])
+
+    def test_reboot_restores_school_effects_and_original_parent_preferences(self):
+        self.status["mode"] = "school"
+        self.desktop.synchronize()
+        self.marker.unlink()
+        self.live_shortcuts = False
+        self.dnd = "off"
+        os.environ["HYPRLAND_INSTANCE_SIGNATURE"] = "new-login"
+        self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertTrue(self.live_shortcuts)
+        self.assertEqual(self.dnd, "on")
+        self.assertEqual(len(self.calls_for("window-session", "enter")), 2)
+        self.status["mode"] = "free"
+        self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertEqual(self.dnd, "off")
+        self.status["enabled"] = False
+        self.desktop.synchronize()
+        self.assertEqual(self.desktop.read(self.desktop.CONFIG), self.original)
+
+    def test_delayed_status_recovers_into_free_time_without_school_window_effects(self):
+        self.status = None
+        with self.assertRaises(ValueError):
+            self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertEqual(self.calls_for("window-session"), [])
+        self.status = {"schemaVersion": 1, "enabled": True, "mode": "free"}
+        self.desktop.synchronize()
+        self.assertEqual(self.calls_for("shortcut-policy", "enter")[-1][-1], "free")
+        self.assertTrue(self.launcher_disabled())
+        self.assertEqual(self.calls_for("window-session"), [])
+        self.assertEqual(self.dnd, "off")
+
+    def test_compositor_reload_does_not_make_old_marker_authoritative(self):
+        for mode in ("school", "free"):
+            with self.subTest(mode=mode):
+                self.status["mode"] = mode
+                self.desktop.synchronize()
+                self.assertTrue(self.marker.exists())
+                self.live_shortcuts = False  # A late startup/config reload reset the bindings.
+                before = len(self.calls_for("shortcut-policy", "enter"))
+                self.desktop.synchronize()
+                self.assertTrue(self.live_shortcuts)
+                self.assertEqual(len(self.calls_for("shortcut-policy", "enter")), before + 1)
+
+    def test_notification_startup_failure_does_not_block_app_restrictions(self):
+        self.status["mode"] = "school"
+        self.failure = lambda args: args[:2] == ("omarchy-shell", "notifications")
+        with self.assertRaises(ValueError):
+            self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertTrue(self.live_shortcuts)
+        self.failure = None
+        self.dnd = "on"  # Capture the real preference once notifications become available.
+        self.desktop.synchronize()
+        self.status["enabled"] = False
+        self.desktop.synchronize()
+        self.assertEqual(self.desktop.read(self.desktop.CONFIG), self.original)
+        self.assertEqual(self.dnd, "on")
+
+    def test_window_startup_failure_does_not_block_app_restrictions(self):
+        self.status["mode"] = "school"
+        self.failure = lambda args: len(args) > 2 and Path(args[1]).name == "window-session" and args[2] == "enter"
+        with self.assertRaises(ValueError):
+            self.desktop.synchronize()
+        self.assertTrue(self.launcher_disabled())
+        self.assertTrue(self.live_shortcuts)
+        self.failure = None
+        self.desktop.synchronize()
+        self.assertEqual(self.dnd, "on")
+        self.assertEqual(len(self.calls_for("window-session", "enter")), 2)
 
 
 if __name__ == "__main__":

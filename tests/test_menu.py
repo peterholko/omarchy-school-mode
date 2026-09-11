@@ -98,7 +98,7 @@ class MenuTest(unittest.TestCase):
     def test_missing_status_does_not_expose_all_apps(self):
         self.load(True)
         self.invoke("free")
-        self.assertNotIn("Discord", self.invoke("disconnect")["ids"])
+        self.assertEqual(self.invoke("disconnect")["ids"], [])
         self.invoke("loading")
         self.assertEqual(self.invoke("inspect")["ids"], [])
 

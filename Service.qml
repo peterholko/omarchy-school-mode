@@ -31,6 +31,7 @@ Item {
   function loadStatus(rawText) {
     var state = ModeState.parseStatus(rawText)
     if (!state.valid) { connected = false; return }
+    var changed = !connected || schoolEnabled !== state.enabled || mode !== state.mode
     connected = true
     schoolEnabled = state.enabled
     mode = state.mode
@@ -43,6 +44,7 @@ Item {
       allowedDesktopIds = ids
       allowlistChanged()
     }
+    if (changed) guardAppLaunch()
   }
   FileView {
     id: statusFile
@@ -71,5 +73,6 @@ Item {
       if (!desktop.running) desktop.running = true
     }
   }
-  Component.onDestruction: Quickshell.execDetached(["python3", "-I", desktopTool, "restore"])
+  // Shell shutdown, logout and plugin reload are not permission to release
+  // desktop restrictions. Only explicit disable/unenrollment restores them.
 }

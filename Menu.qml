@@ -28,7 +28,7 @@ Loader {
   // Only a confirmed disabled enrollment restores the unrestricted menu.
   // While status is loading, do not briefly expose the full application set.
   readonly property bool restrictApps: !root.modeService || !root.modeService.connected || root.modeService.schoolEnabled === true
-  readonly property var approvedDesktopIds: !root.modeService || !root.modeService.schoolEnabled ? []
+  readonly property var approvedDesktopIds: !root.modeService || !root.modeService.connected || !root.modeService.schoolEnabled ? []
     : (root.schoolMode ? root.modeService.allowedDesktopIds : FreeTimeApps.DESKTOP_IDS)
   readonly property string pluginRoot: decodeURIComponent(Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")).replace(/\/$/, "")
   readonly property string homeDir: Quickshell.env("HOME")

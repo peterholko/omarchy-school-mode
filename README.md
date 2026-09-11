@@ -42,7 +42,7 @@ Free Time restores the existing [school and creativity app policy](docs/free-tim
 
 There is one browser profile. This plugin does not filter websites; use a separate DNS/browser policy if needed. Free Time restores the approved browser, Files, Omawrite, Obsidian, Cliamp, Google Maps, Khan Academy and Wikipedia shortcuts through the same app checks as the launcher. As in the original child profile, `Super+Return` remains available in Free Time for parent maintenance. The filtered launcher and standard shortcut changes do not prevent custom shortcuts, terminal commands or manually started applications, and do not terminate existing processes.
 
-The desktop helper journals recovery before applying changes and changes only its own `disabledPlugins` entry in `~/.config/omarchy/shell.json`. Other bar and shell settings are preserved. It keeps a first-use backup under `~/.local/state/omarchy-community-school-mode/`. Custom `XDG_CONFIG_HOME` and `XDG_STATE_HOME` are respected by the helper. Run `school-desktop.py disable` before disabling or removing the plugin; this also revokes desktop consent.
+The desktop helper journals recovery before applying changes and changes only its own `disabledPlugins` entry in `~/.config/omarchy/shell.json`. Other bar and shell settings are preserved. It keeps a first-use backup under `~/.local/state/omarchy-community-school-mode/`. Custom `XDG_CONFIG_HOME` and `XDG_STATE_HOME` are respected by the helper. Desktop consent and launcher restrictions survive logout, shutdown and shell restarts. While school status is loading, the launcher shows no apps and the helper applies the restrictive school shortcuts; window parking waits for confirmed School Mode. The helper checks live compositor bindings and repairs its shortcuts if a later startup or configuration reload replaces them. Run `school-desktop.py disable` before disabling or removing the plugin; this also revokes desktop consent.
 
 ### Manage enrollment and password
 
@@ -87,7 +87,9 @@ omarchy restart shell
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
-Version 1.1.0 restores the Free Time app policy that was omitted from the standalone export. Returning from School Mode keeps the approved launcher and child shortcuts active, restores parked windows and notifications, and preserves the existing school app list. Earlier desktop recovery journals are retained and upgraded, so disabling desktop controls still restores the original menu and bindings. The final command above applies the restored policy in the current desktop session.
+Version 1.1.1 fixes startup recovery: stopping the shell no longer releases the approved desktop, startup does not trust stale shortcut receipts, and unavailable policy status, notifications or window-parking commands cannot leave the stock launcher open. The final command above applies the fix to the current session without changing the saved mode or app approvals.
+
+Version 1.1.0 restored the Free Time app policy that was omitted from the standalone export. Returning from School Mode keeps the approved launcher and child shortcuts active, restores parked windows and notifications, and preserves the existing school app list. Earlier desktop recovery journals are retained and upgraded, so disabling desktop controls still restores the original menu and bindings.
 
 The app-library compatibility fix from 1.0.1 is included: when the shell does not supply an app library to community menus, School Mode loads the matching implementation from the installed Omarchy. Both library paths refresh as apps, school approvals or modes change.
 
@@ -127,4 +129,4 @@ omarchy plugin validate .
 python3 -m unittest discover -s tests -v
 ```
 
-The local tests require PySide6, Bash and jq. They run the actual menu adapter in Qt with fixture desktop entries and verify desktop transitions, recovery, and shortcut commands without changing a running desktop. The upstream manifest validator is also used. Full desktop behavior, systemd installation and removal require validation on an actual Omarchy laptop. There are no GitHub Actions workflows in this repository.
+The local tests require PySide6, Bash and jq. They run the actual menu adapter and service lifecycle in Qt with fixture desktop entries and verify desktop transitions, reboot recovery, delayed startup services, compositor reloads, and shortcut commands without changing a running desktop. The upstream manifest validator is also used. Full desktop behavior, systemd installation and removal require validation on an actual Omarchy laptop. There are no GitHub Actions workflows in this repository.
