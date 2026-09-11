@@ -1,16 +1,6 @@
-# School Mode has moved into School & Screen Time
-
-School Mode and Screen Time now form **one plugin with one parent control panel**, including Math Time. New installations should use [School & Screen Time](https://github.com/peterholko/omarchy-screen-time).
-
-For an existing installation, follow the [migration instructions](https://github.com/peterholko/omarchy-screen-time#move-from-the-old-separate-school-mode-plugin). Restore the desktop with this old plugin and disable its UI before enabling the combined version. Upgrade the shared service using the new plugin's `setup --upgrade`; existing schedules, budgets, passwords, history and enrollment choices are retained. Do not remove the old service module or its saved state to migrate.
-
-This repository keeps the legacy plugin available for existing users. The documentation below describes that older separate plugin.
-
----
-
 # School / Free Time
 
-Scheduled school mode, an app allowlist, and password-protected free time.
+Scheduled school mode, an application whitelist, and password-protected free time. This is the standalone School Mode plugin, with its own parent settings panel.
 
 A community plugin for **Omarchy Quattro with the Quickshell plugin system**. It works on a regular Omarchy installation; an Omarchy Kids ISO or fork is not required. The plugin ID is `io.github.peterholko.school-mode`.
 
@@ -32,7 +22,7 @@ omarchy pkg add python
 sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME
 ```
 
-Setup asks for a new **controls parent password** of at least eight characters. Screen Time and School Mode share this password and the `omarchy-kids-controls.service` service. Setup copies only this repository's local, reviewed payload; it does not download code. Installing the second plugin preserves the first plugin's settings and enrollments. Use matching plugin releases; mismatched service versions require an explicit `--upgrade`, and unknown files or locally modified installed service files stop setup.
+Setup asks for a new **controls parent password** of at least eight characters, or preserves the password if the community controls service is already installed. School Mode uses `omarchy-kids-controls.service`, which can also host other community controls modules. The separate `peterholko.screen-time` plugin uses its own service and parent authentication. Setup copies only this repository's local, reviewed payload; it does not download code. Installing another module preserves existing settings and enrollments. Use matching service releases; unknown files or locally modified installed service files stop setup. Do not use this older service payload to downgrade a newer shared service installed by a game or another controls plugin.
 
 Only the named account is enrolled. Root owns the password hash, schedules, budgets and reward checks. The UI sends passwords over stdin, and the local service authenticates callers by their Unix socket peer credentials. It rate limits failed parent-password attempts. The controls password is separate from the login, administrator and disk passwords.
 
@@ -59,6 +49,22 @@ sudo omarchy-kids-controls password
 sudo omarchy-kids-controls disable school --user CHILD_USERNAME
 sudo omarchy-kids-controls enable school --user CHILD_USERNAME
 ```
+
+## Optional Screen Time connection
+
+School Mode works independently. To pause a free-time budget during school hours, install [Screen Time](https://github.com/peterholko/omarchy-screen-time-platform) separately. In its parent controls, open **School Mode**, enable **Connect to the separate School Mode plugin**, and save with the parent password or enabled PIN. The connection starts off.
+
+When connected, active School Mode pauses Screen Time's free-time budget and game rewards. Free Time resumes the remaining budget. Bedtime and other blocked periods still apply in Limits mode, and explicit parent locks still apply in both Screen Time modes. If School Mode's service is unavailable, normal screen-time rules apply.
+
+Keep using this plugin's parent panel for the school schedule, application whitelist and password-protected Free Time. The plugins remain separately installable, with separate settings panels; installing Screen Time does not install or replace School Mode.
+
+If you already have a newer `omarchy-kids-controls.service` from a compatible community game or controls plugin, use its installed payload instead of this repository's older service setup:
+
+```bash
+sudo omarchy-kids-controls install --module school --user CHILD_USERNAME
+```
+
+That service already includes the School Mode code; this activates and enrolls the school module while retaining its version, other modules and settings. The original Omarchy Kids backend is a different installation and is not adopted by this command.
 
 ### Service paths and dependencies
 
