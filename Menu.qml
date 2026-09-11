@@ -16,7 +16,9 @@ Loader {
   property string pendingPayload: ""
   property bool hasPendingPayload: false
 
-  readonly property var sourceAppLibrary: shell ? shell.appLibrary : null
+  readonly property var shellAppLibrary: root.shell && root.shell.appLibrary
+    && typeof root.shell.appLibrary.sortedEntries === "function" ? root.shell.appLibrary : null
+  readonly property var sourceAppLibrary: root.shellAppLibrary || localAppLibrary.item
   readonly property var modeService: shell && typeof shell.serviceFor === "function"
     ? shell.serviceFor("io.github.peterholko.school-mode")
     : null
@@ -27,6 +29,23 @@ Loader {
   asynchronous: false
   source: omarchyPath ? "file://" + omarchyPath + "/shell/plugins/menu/Menu.qml" : ""
 
+  // When the host does not supply an app library, load the matching installed
+  // implementation in this same shell process, preserving its desktop-entry
+  // filtering, icons and launch behavior.
+  Loader {
+    id: localAppLibrary
+    active: !root.shellAppLibrary && root.omarchyPath !== ""
+    source: active ? "file://" + root.omarchyPath + "/shell/services/AppLibrary.qml" : ""
+    onLoaded: item.omarchyPath = root.omarchyPath
+  }
+
+  // A provider may already have cached an empty result before the library
+  // becomes ready. Refresh that result when the library is first supplied.
+  onSourceAppLibraryChanged: Qt.callLater(function() {
+    root.configureMenu()
+    filteredAppLibrary.appsChanged()
+  })
+
   // The stock menu keeps its behaviour, but sees a filtered, read-only view
   // of DesktopEntries. remove() is a no-op: school mode uninstalls nothing.
   QtObject {
@@ -34,8 +53,10 @@ Loader {
     signal appsChanged()
 
     function sortedEntries(query) {
-      if (!root.sourceAppLibrary || !root.modeService) return []
-      return Allowlist.filterRows(root.sourceAppLibrary.sortedEntries(query), root.modeService.allowedDesktopIds)
+      if (!root.sourceAppLibrary) return []
+      var rows = root.sourceAppLibrary.sortedEntries(query)
+      if (!root.schoolMode) return rows
+      return root.modeService ? Allowlist.filterRows(rows, root.modeService.allowedDesktopIds) : []
     }
 
     function entryFor(desktopId) {
@@ -56,6 +77,7 @@ Loader {
 
     function launch(desktopId, name) {
       if (!root.sourceAppLibrary) return
+      if (root.schoolMode && !Allowlist.contains(root.modeService.allowedDesktopIds, desktopId)) return
       // With a separate school profile, the browser and every web app open
       // in it; with one profile, the ordinary way.
       if (SchoolBrowser.SEPARATE_PROFILE) {
@@ -76,6 +98,10 @@ Loader {
     function refreshIcons() { if (root.sourceAppLibrary) root.sourceAppLibrary.refreshIcons() }
 
     function remove(desktopId, name) {
+      if (!root.schoolMode && root.sourceAppLibrary) {
+        root.sourceAppLibrary.remove(desktopId, name)
+        return
+      }
       Quickshell.execDetached(["omarchy-notification-send", "School mode only filters the menu; a parent changes the list in the School / Free Time settings."])
     }
   }
@@ -104,8 +130,11 @@ Loader {
   Connections {
     target: root.modeService
     function onAllowlistChanged() { filteredAppLibrary.appsChanged() }
-    function onSchoolModeChanged() { root.configureMenu() }
   }
+
+  // Refresh after this binding changes; the service signal can arrive before
+  // root.schoolMode has caught up, leaving the previous mode's cached rows.
+  onSchoolModeChanged: configureMenu()
 
   // In school mode every route but Style lands on the apps list.
   function normalizedPayload(payloadJson) {
@@ -153,7 +182,7 @@ Loader {
   function configureMenu() {
     if (!item) return
     item.omarchyPath = root.omarchyPath
-    item.shell = root.schoolMode ? filteredShell : root.shell
+    item.shell = root.schoolMode || !root.shellAppLibrary ? filteredShell : root.shell
     item.manifest = root.manifest
     if (root.schoolMode && root.pluginRoot) {
       item.defaultMenuPath = root.pluginRoot + "/school-menu.jsonc"

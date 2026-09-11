@@ -80,10 +80,13 @@ The shared service uses Python 3's standard library, systemd/logind and Omarchy'
 ## Update
 
 ```bash
-omarchy plugin update io.github.peterholko.school-mode
+omarchy plugin update io.github.peterholko.school-mode --yes
+omarchy restart shell
 ```
 
-Review any service changes, then update the root-owned copy explicitly:
+Version 1.0.1 fixes the empty school launcher on shells that do not expose their application library to community plugins. School Mode loads the matching app library from the installed Omarchy, then filters it using the saved approved list. Both the shared and local library paths refresh when apps or the approved list change, and switching between School and Free Time updates an open launcher immediately.
+
+This is a launcher-only update; it needs no service setup, and the saved approved apps, parent password and schedules are retained. For future service changes, review the payload before updating the root-owned copy explicitly. Only use the following command if this standalone service is the installed version; a newer shared service from a game must use its matching setup instead:
 
 ```bash
 sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME --upgrade
