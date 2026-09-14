@@ -157,6 +157,16 @@ def _scrub(path, owner_uid):
 
 
 def write_private(path, text, owner_uid=None):
+    """Publish private settings or state with owner-only permissions."""
+    _write_atomic(path, text, 0o600, owner_uid)
+
+
+def write_public(path, text, owner_uid=None):
+    """Publish deliberately public status with read permissions in place."""
+    _write_atomic(path, text, 0o644, owner_uid)
+
+
+def _write_atomic(path, text, mode, owner_uid=None):
     """Write through a temporary file and rename.
 
     A plain `>` follows a symlink sitting on the destination; rename(2) replaces
@@ -171,6 +181,9 @@ def write_private(path, text, owner_uid=None):
         with os.fdopen(fd, "w") as handle:
             handle.write(text)
             handle.flush()
+            # File watchers can read as soon as rename publishes this inode.
+            # Apply its final permissions before that visibility boundary.
+            os.fchmod(handle.fileno(), mode)
             os.fsync(handle.fileno())
         os.replace(tmp, path)
         directory = os.open(path.parent, os.O_RDONLY)

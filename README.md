@@ -87,6 +87,8 @@ omarchy restart shell
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
+Version 1.1.3 includes a service fix for status-file permissions. The old publisher could briefly deny the shell access to School Mode status, leaving only Style in the launcher. Apply this fix by upgrading the installed service as described below, then restart the shell. If a game installed the newer shared service, use that game's setup to install shared service 3.0.1; for example, follow the [Pawberry update instructions](https://github.com/peterholko/omarchy-pawberry#update). Existing passwords, app approvals, schedules and progress are retained.
+
 Version 1.1.2 adds the standalone Math Time app (`io.github.peterholko.math`) to Free Time's approved launcher. Install its desktop entry using the [Math Time installation instructions](https://github.com/peterholko/omarchy-math-time#install-for-linnea). Math Time practice remains paused during School Mode.
 
 Version 1.1.1 fixes startup recovery: stopping the shell no longer releases the approved desktop, startup does not trust stale shortcut receipts, and unavailable policy status, notifications or window-parking commands cannot leave the stock launcher open. The final command above applies the fix to the current session without changing the saved mode or app approvals.

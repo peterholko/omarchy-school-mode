@@ -47,7 +47,6 @@ def public_status(layout, username, feature, payload):
         paths.private_dir(paths.PARENT_STATE_DIR, mode=0o755, scrub=False)
         paths.private_dir(target.parent.parent, mode=0o755, scrub=False)
     paths.private_dir(target.parent, mode=0o755, scrub=False)
-    # Stage with the private writer's no-symlink/owner checks, then expose only
-    # the deliberately public payload. The directory is not child-writable.
-    paths.write_private(target, json.dumps(payload) + "\n")
-    os.chmod(target, 0o644)
+    # Publish the complete, readable inode in one rename. A later chmod races
+    # shell file watchers and can leave their status reader disconnected.
+    paths.write_public(target, json.dumps(payload) + "\n")
