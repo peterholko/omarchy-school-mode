@@ -38,7 +38,7 @@ python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/schoo
 
 Click the book/sun widget to enter School Mode or request Free Time. Free Time and changes to the school schedule or school app list require the controls parent password; the password field displays checking feedback. The settings include optional school access to Number Grove, Paw Post Typing and Pawberry Pet Hotel when their desktop launchers are installed. Other school desktop IDs can be configured with the client’s `config patch` command.
 
-Free Time restores the existing [school and creativity app policy](docs/free-time-apps.md), plus the three learning games. It does not expose every installed app. The policy matches exact desktop IDs; Discord, social/AI apps, supervision-only apps and unknown newly installed apps stay outside the launcher and its search. The default Omarchy menu's Community/Discord and app-install actions are not part of either child menu. Both retain Theme and Background under Style. Only installed apps appear; this update installs no applications.
+Free Time restores the existing [school and creativity app policy](docs/free-time-apps.md), plus the three learning games and Math Time. It does not expose every installed app. The policy matches exact desktop IDs; Discord, social/AI apps, supervision-only apps and unknown newly installed apps stay outside the launcher and its search. The default Omarchy menu's Community/Discord and app-install actions are not part of either child menu. Both retain Theme and Background under Style. Only installed apps appear; this update installs no applications.
 
 There is one browser profile. This plugin does not filter websites; use a separate DNS/browser policy if needed. Free Time restores the approved browser, Files, Omawrite, Obsidian, Cliamp, Google Maps, Khan Academy and Wikipedia shortcuts through the same app checks as the launcher. As in the original child profile, `Super+Return` remains available in Free Time for parent maintenance. The filtered launcher and standard shortcut changes do not prevent custom shortcuts, terminal commands or manually started applications, and do not terminate existing processes.
 
@@ -86,6 +86,8 @@ omarchy plugin update io.github.peterholko.school-mode --yes
 omarchy restart shell
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
+
+Version 1.1.2 adds the standalone Math Time app (`io.github.peterholko.math`) to Free Time's approved launcher. Install its desktop entry using the [Math Time installation instructions](https://github.com/peterholko/omarchy-math-time#install-for-linnea). Math Time practice remains paused during School Mode.
 
 Version 1.1.1 fixes startup recovery: stopping the shell no longer releases the approved desktop, startup does not trust stale shortcut receipts, and unavailable policy status, notifications or window-parking commands cannot leave the stock launcher open. The final command above applies the fix to the current session without changing the saved mode or app approvals.
 

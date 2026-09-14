@@ -1,5 +1,5 @@
 // The existing family app policy, recovered from kids-apps-themes.md:
-// school and creativity apps, plus the three subsequently approved games.
+// school and creativity apps, plus the approved games and Math Time.
 // Match desktop IDs exactly; a similar name or category is not approval.
 var DESKTOP_IDS = [
   "chromium",
@@ -10,7 +10,8 @@ var DESKTOP_IDS = [
   "com.github.xournalpp.xournalpp", "aether", "li.oever.aether",
   "obsidian", "org.kde.kdenlive", "cliamp", "Google Maps",
   "Khan Academy", "Wikipedia",
-  "io.github.peterholko.pawberry", "io.github.peterholko.number-grove", "io.github.peterholko.paw-post"
+  "io.github.peterholko.pawberry", "io.github.peterholko.number-grove", "io.github.peterholko.paw-post",
+  "io.github.peterholko.math"
 ]
 
 if (typeof module !== "undefined") module.exports = { DESKTOP_IDS: DESKTOP_IDS }

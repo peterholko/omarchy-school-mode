@@ -18,8 +18,9 @@ This restores the family app policy recorded before the standalone plugin split.
 | Google Maps | `Google Maps` |
 | Khan Academy and Wikipedia | `Khan Academy`, `Wikipedia` |
 | Subsequently added learning games | `io.github.peterholko.pawberry`, `io.github.peterholko.number-grove`, `io.github.peterholko.paw-post` |
+| Math Time | `io.github.peterholko.math` |
 
-The original supervision-only group stays outside ordinary Free Time: the unrestricted YouTube shortcut, Zoom, LocalSend, Moonlight, general games, OBS Studio and WhatsApp. Discord, X, ChatGPT/Grok and other AI apps, Basecamp, HEY, Google Messages, Docker, administrative tools, terminals and developer tools are also excluded from the child launcher. The three learning games above are the later approved additions. Newly installed apps do not gain Free Time access automatically.
+The original supervision-only group stays outside ordinary Free Time: the unrestricted YouTube shortcut, Zoom, LocalSend, Moonlight, general games, OBS Studio and WhatsApp. Discord, X, ChatGPT/Grok and other AI apps, Basecamp, HEY, Google Messages, Docker, administrative tools, terminals and developer tools are also excluded from the child launcher. The three learning games and Math Time are the later approved additions. Newly installed apps do not gain Free Time access automatically.
 
 The recorded policy also retains the Free Time `Super+Return` terminal shortcut for parent maintenance. These are launcher and standard-shortcut controls; they do not change program permissions, inspect browser activity or block manually launched applications. There is no new Free Time settings editor in this restoration.
 
