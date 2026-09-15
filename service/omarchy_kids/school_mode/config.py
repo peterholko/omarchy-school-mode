@@ -1,4 +1,4 @@
-"""School-only profiles, schedules, and enrollment."""
+"""School schedules, parent-granted Free Time and enrollment."""
 from omarchy_kids.core.periods import DAYS
 from .defaults import DEFAULT_SCHOOL_APPS, sanitize_school_apps
 
@@ -20,7 +20,11 @@ def sanitize_profile(raw):
         days = [d for d in DAYS if d in days] if isinstance(days, list) else list(DAYS)
         periods.append({"label": str(entry.get("label") or "School")[:40], "enabled": bool(entry.get("enabled", False)),
                         "start": start, "end": end, "days": days or list(DAYS), "mode": "free"})
+    minutes = raw.get("free_time_minutes", 30)
+    if type(minutes) is not int or not 1 <= minutes <= 1440:
+        minutes = 30
     return {"name": str(raw.get("name") or "Default")[:80], "blocked_periods": periods,
+            "free_time_minutes": minutes,
             "school_apps": sanitize_school_apps(raw.get("school_apps"))}
 
 
@@ -63,7 +67,9 @@ def sanitize(raw):
 
 
 def valid_patch(patch):
-    if not isinstance(patch, dict) or set(patch) - {"name", "school_apps", "blocked_periods"}:
+    if not isinstance(patch, dict) or set(patch) - {"name", "school_apps", "blocked_periods", "free_time_minutes"}:
+        return False
+    if "free_time_minutes" in patch and (type(patch["free_time_minutes"]) is not int or not 1 <= patch["free_time_minutes"] <= 1440):
         return False
     if "school_apps" in patch and (not isinstance(patch["school_apps"], list) or any(not isinstance(app, str) for app in patch["school_apps"])):
         return False

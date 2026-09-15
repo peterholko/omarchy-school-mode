@@ -37,6 +37,9 @@ class DayState:
         self.warned = [int(w) for w in raw.get("warned", []) if isinstance(w, (int, float))]
         self.agreement_noted = bool(raw.get("agreement_noted", False))
         self.ledger = raw.get("ledger") if isinstance(raw.get("ledger"), list) else []
+        # Separate from the bounded display ledger: retries must stay
+        # idempotent even after older events have scrolled out of history.
+        self.activity_rewards = raw.get("activity_rewards") if isinstance(raw.get("activity_rewards"), dict) else {}
         self.dirty = False
         self.clamp_bank()
 
@@ -101,6 +104,7 @@ class DayState:
             "warned": self.warned,
             "agreement_noted": self.agreement_noted,
             "ledger": self.ledger,
+            "activity_rewards": self.activity_rewards,
         }
 
     def summary(self):

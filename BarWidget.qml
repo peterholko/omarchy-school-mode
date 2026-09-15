@@ -13,6 +13,7 @@ Ui.BarWidget {
   readonly property var modeService: bar && bar.shell ? bar.shell.serviceFor("io.github.peterholko.school-mode") : null
   readonly property bool schoolMode: modeService ? modeService.schoolMode === true : false
   readonly property bool schoolEnabled: modeService ? modeService.schoolEnabled === true : false
+  readonly property bool showCountdown: schoolEnabled && !schoolMode && modeService.timerVersion === 1
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property real openPanelIndicatorWidth: button.opticalSize
@@ -33,7 +34,7 @@ Ui.BarWidget {
   function closeForPopoutSwitch() { if (panelLoader.item) panelLoader.item.closeForPopoutSwitch() }
 
   visible: schoolEnabled
-  implicitWidth: schoolEnabled ? button.implicitWidth : 0
+  implicitWidth: schoolEnabled ? content.implicitWidth : 0
   implicitHeight: button.implicitHeight
 
   onBarChanged: injectPanel()
@@ -51,15 +52,28 @@ Ui.BarWidget {
     }
   }
 
-  Ui.BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: root.schoolMode ? "\uf02d" : "\uf185"
-    slotSize: Style.bar.statusSlot
-    opticalSize: Style.bar.iconCanvas
-    tooltipText: root.schoolMode ? "School mode" : "Free time"
-    active: root.opened || root.schoolMode
-    onPressed: root.togglePanel()
+  Row {
+    id: content
+    spacing: root.showCountdown ? Style.space(4) : 0
+    Ui.BarIconButton {
+      id: button
+      bar: root.bar
+      text: root.schoolMode ? "\uf02d" : "\uf185"
+      slotSize: Style.bar.statusSlot
+      opticalSize: Style.bar.iconCanvas
+      tooltipText: root.schoolMode ? "School Mode" : "Free Time · " + (root.modeService ? root.modeService.countdownText : "")
+      active: root.opened || root.schoolMode
+      onPressed: root.togglePanel()
+    }
+    Text {
+      objectName: "freeTimeCountdown"
+      visible: root.showCountdown
+      anchors.verticalCenter: parent.verticalCenter
+      text: root.showCountdown ? root.modeService.countdownText : ""
+      color: root.bar ? root.bar.foreground : Color.foreground
+      font.family: root.bar ? root.bar.fontFamily : Style.font.family
+      font.pixelSize: Style.font.body
+      MouseArea { anchors.fill: parent; onClicked: root.togglePanel() }
+    }
   }
 }

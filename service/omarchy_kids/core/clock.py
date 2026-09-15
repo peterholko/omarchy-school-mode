@@ -37,7 +37,7 @@ class Clock:
             self.last_jump = {"at": expected, "drift_seconds": round(drift, 1)}
             self.logical = expected
         else:
-            self.logical = max(wall, expected - TOLERANCE_SECONDS)
+            self.logical = max(wall, expected)
         return self.logical, elapsed
 
     def now(self):

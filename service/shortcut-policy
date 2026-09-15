@@ -10,7 +10,7 @@
 
 set -Eeuo pipefail
 
-PLUGIN_ID=io.github.peterholko.school-mode
+PLUGIN_ID=io.github.peterholko.screen-time
 HYPRCTL_BIN=${OMARCHY_SCHOOL_HYPRCTL:-hyprctl}
 RUNTIME_ROOT=${XDG_RUNTIME_DIR:?Run this command in the Omarchy desktop session}
 STATE_DIR=$RUNTIME_ROOT/omarchy-community-school-mode

@@ -173,6 +173,18 @@ def shell_plugin_open(uid, plugin_id):
     return None
 
 
+def shell_math_open(uid):
+    """Only the math activity may defer a zero-budget relock, never settings."""
+    if not shutil.which("omarchy-shell"):
+        return None
+    result = _as_user(uid, ["omarchy-shell", "shell", "call", "io.github.peterholko.screen-time", "mathOpen", ""])
+    if result is None or result.returncode != 0:
+        return None
+    value = result.stdout.strip().lower()
+    if value == "true": return True
+    return shell_plugin_open(uid, "io.github.peterholko.math")
+
+
 def notify(uid, title, body, urgency="normal", tag=None):
     command = next((c for c in NOTIFY_COMMANDS if shutil.which(c)), None)
     if command is None:

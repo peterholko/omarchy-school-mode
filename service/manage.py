@@ -63,10 +63,11 @@ def verify_owned(path):
 
 def wrappers():
     result = {}
-    for role in ('time', 'school', 'grove'):
+    for role in ('time', 'school', 'grove', 'pawberry', 'typing'):
         name = 'omarchy-kids-controls-' + role + '-client'
         result[Path('/usr/bin') / name] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/runtime.py {role} "$@"\n'
     result[Path('/usr/bin/omarchy-kids-controls')] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/manage.py "$@"\n'
+    result[Path('/usr/bin/omarchy-kids-controls-school-pam')] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/runtime.py school-pam "$@"\n'
     return result
 
 
@@ -99,15 +100,35 @@ def check_account(name):
         raise ValueError('choose a regular local account')
     # Running both backends against one account would enforce two unrelated
     # budgets. Keep existing Kids installations out of this standalone path.
-    for file in ('screen-time.json', 'school-mode.json'):
+    for file in ('screen-time.json', 'school-mode.json', 'pawberry.json'):
         legacy = Path('/etc/omarchy/parent') / file
         if name in read_json(legacy, {}).get('users', {}):
-            raise ValueError('this account already has Omarchy Kids controls; disable those before enabling the standalone controls')
+            raise ValueError('this account has native Omarchy Kids settings; standalone setup cannot adopt those settings or counters. Review that enrollment before setting up a separate service.')
     return account
 
 
 def config_path(module):
-    return CONFIG / ('screen-time.json' if module == 'time' else 'school-mode.json')
+    return CONFIG / {'time': 'screen-time.json', 'school': 'school-mode.json'}.get(module, module + '.json')
+
+
+def selected_modules(previous, module):
+    selected = {'school', 'time'} if module == 'controls' else {module}
+    modules = set(previous.get('modules', [])) | selected
+    # Older controls releases always hosted Pawberry's practice limits too.
+    if modules & {'time', 'school'} and tuple(map(int, previous.get('version', '2.3.0').split('.'))) < (3, 0, 0):
+        modules.add('pawberry')
+    return sorted(modules), selected
+
+
+def remove_game_providers():
+    """Retire only these games' old registrations; keep balances and history."""
+    admin = Path('/usr/bin/omarchy-peterholko-screen-time-admin')
+    if not admin.is_file():
+        return
+    for identifier in ('peterholko.pawberry', 'peterholko.number-grove', 'peterholko.paw-post'):
+        result = run(str(admin), 'provider-remove', identifier, capture_output=True, text=True)
+        if json.loads(result.stdout).get('ok') is not True:
+            raise ValueError(f'could not remove the former Screen Time registration for {identifier}')
 
 
 def initialize_config():
@@ -141,6 +162,21 @@ def wait_for_service():
     raise ValueError('the service did not start; inspect journalctl -u omarchy-kids-controls')
 
 
+def replace_screen_time(user):
+    """Retire this account's old timer without touching another child's setup."""
+    if user in read_json(config_path('time'), {}).get('users', {}):
+        enroll('time', user, False)
+    previous = read_json(Path('/etc/peterholko-screen-time/config.json'), {}).get('users', {}).get(user)
+    if previous is not None:
+        admin = Path('/usr/bin/omarchy-peterholko-screen-time-admin')
+        if not admin.is_file():
+            raise ValueError('the previous Screen Time installation needs repair before replacing its enrollment')
+        write_json(CONFIG / ('previous-screen-time-' + str(pwd.getpwnam(user).pw_uid) + '.json'), {'user': user, 'enrollment': previous})
+        response = run(str(admin), 'remove', user, capture_output=True, text=True)
+        if json.loads(response.stdout).get('ok') is not True:
+            raise ValueError('could not disable the previous Screen Time enrollment')
+
+
 def install(args):
     check_account(args.user)
     if not Path('/usr/share/omarchy/config/omarchy/shell.json').is_file():
@@ -148,6 +184,9 @@ def install(args):
     ensure_directory(CONFIG, 0o700)
     ensure_directory(STATE, 0o755)
     previous = installed()
+    from omarchy_kids.school_mode import pam_setup
+    selected_school = args.module in ('school', 'controls')
+    pam_plan = pam_setup.plan() if selected_school else None
     incoming = payload_files(SOURCE)
     owned = previous.get('payload', {})
     if PREFIX.exists() or PREFIX.is_symlink():
@@ -168,9 +207,11 @@ def install(args):
         verify_owned(UNIT)
     if previous and previous.get('version') != VERSION and not args.upgrade:
         raise ValueError('review the new service revision, then rerun with --upgrade; existing settings are retained')
+    if previous and tuple(map(int, previous['version'].split('.'))) > tuple(map(int, VERSION.split('.'))):
+        raise ValueError('the installed service is newer; update this game before running its setup')
     if previous and previous.get('version') == VERSION and owned != incoming:
         raise ValueError('two different service payloads claim the same version; use matching plugin releases')
-    if not PASSWORD_PATH.exists():
+    if args.module in ('controls', 'time', 'school', 'pawberry') and not PASSWORD_PATH.exists():
         set_parent_password()
     initialize_config()
     if not previous or owned != incoming:
@@ -205,18 +246,31 @@ def install(args):
     # Record ownership before creating wrappers/unit so an interrupted setup
     # can safely be retried without adopting unrelated files.
     unit = (SOURCE / UNIT.name).read_text()
-    modules = sorted(set(previous.get('modules', [])) | {args.module})
+    modules, selected = selected_modules(previous, args.module)
     write_json(MARKER, {'identity': IDENTITY, 'version': VERSION, 'payload': incoming, 'unit': unit, 'modules': modules})
     for path, text in wrappers().items():
         write_wrapper(path, text)
+    if pam_plan is not None:
+        pam_setup.install(pam_plan)
     paths.write_private(UNIT, unit)
     UNIT.chmod(0o644)
     run('systemctl', 'daemon-reload')
     run('systemctl', 'enable', '--now', UNIT.name)
+    # Adding a module to an unchanged payload must reload the module roster.
+    run('systemctl', 'restart', UNIT.name)
     wait_for_service()
-    enroll(args.module, args.user, True)
-    print(f'{args.module} controls enabled for {args.user}. The other module settings were retained.')
-    print('Open the plugin’s parent settings to choose the schedule and limits.')
+    for module in selected:
+        # Updating an already-installed family preserves both enrollment
+        # decisions. A fresh install enrolls both parts of the combined control.
+        if module not in previous.get('modules', []) or not args.upgrade or module in ('pawberry', 'grove', 'typing'):
+            enroll(module, args.user, True)
+    remove_game_providers()
+    if selected_school:
+        replace_screen_time(args.user)
+    print(f'{args.module} service installed for {args.user}. Existing settings were retained.')
+    if selected_school:
+        print('Free Time starts with parent approval. Its expiry needs the controls parent password and returns to School Mode.')
+        print('The previous Screen Time enrollment was disabled for this account; settings and history were retained.')
 
 
 def restore_desktop(username):
@@ -236,9 +290,13 @@ def remove(module):
         enroll(module, user, False)
         if module == 'school':
             restore_desktop(user)
+    if module == 'school':
+        from omarchy_kids.school_mode import pam_setup
+        pam_setup.remove()
     marker['modules'].remove(module)
     if marker['modules']:
         write_json(MARKER, marker)
+        run('systemctl', 'restart', UNIT.name)
         print(f'{module} removed; the shared service remains for the other module.')
         return
     if payload_files(PREFIX) != marker['payload']:
@@ -262,15 +320,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
     installer = sub.add_parser('install')
-    installer.add_argument('--module', choices=['time', 'school'], required=True)
+    installer.add_argument('--module', choices=['controls', 'time', 'school', 'pawberry', 'grove', 'typing'], required=True)
     installer.add_argument('--user', required=True)
     installer.add_argument('--upgrade', action='store_true')
     for action in ('enable', 'disable'):
         command = sub.add_parser(action)
-        command.add_argument('module', choices=['time', 'school'])
+        command.add_argument('module', choices=['controls', 'time', 'school', 'pawberry', 'grove', 'typing'])
         command.add_argument('--user', required=True)
     sub.add_parser('password')
-    sub.add_parser('remove').add_argument('module', choices=['time', 'school'])
+    sub.add_parser('remove').add_argument('module', choices=['controls', 'time', 'school', 'pawberry', 'grove', 'typing'])
     args = parser.parse_args()
     if os.geteuid() != 0 or sys.platform != 'linux':
         parser.error('run this command with sudo on the Omarchy laptop')
@@ -282,15 +340,18 @@ def main():
         elif args.action == 'password':
             set_parent_password()
         elif args.action == 'remove':
-            remove(args.module)
+            for module in (('school', 'time') if args.module == 'controls' else (args.module,)):
+                remove(module)
         else:
-            if args.module not in installed().get('modules', []):
-                raise ValueError('install this module with its plugin setup command first')
-            if args.action == 'enable':
-                check_account(args.user)
-            enroll(args.module, args.user, args.action == 'enable')
-            if args.action == 'disable' and args.module == 'school':
-                restore_desktop(args.user)
+            selected = ('school', 'time') if args.module == 'controls' else (args.module,)
+            for module in selected:
+                if module not in installed().get('modules', []):
+                    raise ValueError('install the controls plugin with its setup command first')
+                if args.action == 'enable':
+                    check_account(args.user)
+                enroll(module, args.user, args.action == 'enable')
+                if args.action == 'disable' and module == 'school':
+                    restore_desktop(args.user)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,4 @@
-// The mode comes from the screen-time daemon's status.json, the file the
-// lock screen and Math time read too: school hours are school mode, and the
-// daemon also holds the kid's own choice and the parent's override.
+// Read-only status from the standalone School / Free Time service.
 function parseStatus(rawText) {
   var fallback = { valid: false, blockedPeriods: [], enabled: false, mode: "free", reason: "", schoolApps: [], schoolUntil: "", schoolLabel: "" }
   var text = String(rawText || "").trim()
@@ -21,7 +19,13 @@ function parseStatus(rawText) {
     reason: String(parsed.modeReason || ""),
     schoolApps: Array.isArray(parsed.schoolApps) ? parsed.schoolApps.map(function(id) { return String(id) }) : [],
     schoolUntil: String(parsed.schoolUntil || ""),
-    schoolLabel: String(parsed.schoolLabel || "")
+    schoolLabel: String(parsed.schoolLabel || ""),
+    timerVersion: parsed.freeTimeTimerVersion === 1 ? 1 : 0,
+    timerReady: parsed.freeTimeReady === true,
+    updatedAt: Number.isFinite(parsed.updatedAt) ? parsed.updatedAt : 0,
+    freeTimeMinutes: Number.isInteger(parsed.freeTimeMinutes) ? parsed.freeTimeMinutes : 30,
+    freeTimeRemainingSeconds: Number.isFinite(parsed.freeTimeRemainingSeconds) ? Math.max(0, parsed.freeTimeRemainingSeconds) : 0,
+    freeTimeExpired: parsed.freeTimeExpired === true
   }
 }
 
@@ -36,9 +40,10 @@ function reasonLine(status) {
     if (status.reason === "schedule") return (status.schoolLabel || "School") + (status.schoolUntil ? " until " + status.schoolUntil : "")
     if (status.reason === "parent") return "Set by a parent"
     if (status.reason === "chosen") return "Chosen for today"
-    return "School mode"
+    return "Ready for school. A parent can start Free Time."
   }
-  if (status.reason === "parent") return "Free time, set by a parent" + (status.schoolUntil ? " until " + status.schoolUntil : "")
+  if (status.reason === "expired") return "Time is up. The parent password returns you to School Mode."
+  if (status.reason === "parent") return "Free Time, started by a parent"
   return "Free time"
 }
 

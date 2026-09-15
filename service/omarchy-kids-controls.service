@@ -1,5 +1,5 @@
 [Unit]
-Description=Omarchy community screen-time and school-mode controls
+Description=Omarchy community controls and optional game verification
 After=systemd-logind.service
 
 [Service]

@@ -10,7 +10,7 @@ import json
 from . import paths
 
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-LEVELS = ["grade1", "grade2", "grade3", "grade4", "grade5", "grade6"]
+LEVELS = ["grade1", "grade2", "grade3", "grade4", "grade5", "grade6", "grade7"]
 PERIOD_MODES = ["block", "free"]
 CONFIG_VERSION = 3
 

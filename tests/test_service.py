@@ -32,6 +32,12 @@ class ServiceTest(unittest.TestCase):
         QTest.qWait(20)
         return json.loads(result)
 
+    def test_rereading_the_same_status_does_not_reset_countdown_seconds(self):
+        self.assertEqual(self.invoke('timer')['countdown'], '30:00')
+        self.assertEqual(self.invoke('elapse')['countdown'], '29:57')
+        self.assertEqual(self.invoke('same-timer')['countdown'], '29:57')
+        self.assertEqual(self.invoke('school')['countdown'], '0:00')
+
     def test_shutdown_and_restart_never_release_desktop_restrictions(self):
         self.assertTrue(self.invoke("school")["school"])
         self.invoke("stop")

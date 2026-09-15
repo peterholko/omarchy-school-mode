@@ -92,7 +92,7 @@ Panel {
     root.pendingAction = "settings"
     root.pendingMode = ""
     root.askingParent = true
-    root.note = "Enter the parent password to edit school hours and apps."
+    root.note = "Enter the parent password to edit School Mode and Free Time settings."
     root.noteIsError = false
     passwordField.text = ""
     Qt.callLater(function() { passwordField.forceActiveFocus() })
@@ -125,7 +125,7 @@ Panel {
     if (payload && payload.ok === true) {
       root.askingParent = false
       root.pendingAction = ""
-      root.note = payload.mode === "school" ? "School mode is on." : "Free time."
+      root.note = payload.mode === "school" ? "School Mode is on." : "Free Time has started."
       root.noteIsError = false
       return
     }
@@ -143,6 +143,8 @@ Panel {
     root.noteIsError = true
     if (error === "bad_password") root.note = "That is not the parent password."
     else if (error === "password_locked_out") root.note = "Too many tries. Wait " + payload.retry_in_seconds + " s."
+    else if (error === "timer_setup_required") root.note = "Update the School Mode service setup before starting Free Time."
+    else if (error === "unlock_to_school") root.note = "Enter the parent password at the lock screen to return to School Mode."
     else root.note = "Could not switch: " + (error || "no answer from school mode")
   }
 
@@ -227,7 +229,7 @@ Panel {
           width: parent.width
           foreground: root.foreground
           title: root.schoolMode ? "School mode" : "Free time"
-          detail: root.schoolMode ? root.schoolAppCount + " apps" : "everything"
+          detail: root.schoolMode ? root.schoolAppCount + " apps" : (root.service && root.service.timerVersion === 1 ? root.service.countdownText + " remaining" : "Service update required")
           meta: root.reasonLine
           iconComponent: Component {
             Text {
@@ -246,7 +248,7 @@ Panel {
           wrapMode: Text.WordWrap
           text: root.schoolMode
             ? "The menu shows the school apps, their shortcuts alone work, notifications are quiet, and the browser keeps your account. Free-time windows are parked and come back after."
-            : "Free Time shows the approved school and creativity apps and the three learning games. Notifications and your browser account stay available. School hours switch to School Mode automatically."
+            : "Your approved apps are available until the timer ends. Then the screen locks and the parent password returns you to School Mode. Locking the screen yourself does not pause the timer."
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -259,19 +261,20 @@ Panel {
           Button {
             id: modeButton
             width: parent.width - settingsButton.width - parent.spacing
-            text: root.schoolMode ? "Back to free time" : "Start school mode"
+            text: root.schoolMode ? "Start Free Time" : "Return to School Mode"
             bordered: true
             selected: !root.schoolMode
             focusable: true
             enabled: !modeProc.running && !settingsAuthProc.running
               && root.service && root.service.schoolEnabled === true
+              && (!root.schoolMode || root.service.freeTimeReady === true)
             onClicked: root.switchMode()
           }
 
           PanelActionButton {
             id: settingsButton
             iconText: root.iconGear
-            tooltipText: "School settings"
+            tooltipText: "School Mode / Free Time settings"
             foreground: root.foreground
             size: Style.spacing.controlHeight
             focusable: true
@@ -280,6 +283,13 @@ Panel {
               && root.service && root.service.schoolEnabled === true
             onClicked: root.openSettings()
           }
+        }
+
+        Text {
+          visible: root.schoolMode && root.service && root.service.freeTimeReady !== true
+          width: parent.width; wrapMode: Text.WordWrap
+          text: "Run the updated School Mode service setup to enable the Free Time timer."
+          color: root.errorColor; font.family: root.fontFamily; font.pixelSize: Style.font.caption
         }
 
         Column {

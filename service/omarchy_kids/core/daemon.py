@@ -28,7 +28,7 @@ class Daemon:
         self.services = {}
         self.health = {}
         migrate(layout)
-        allowed = {"school": "school_mode", "time": "screen_time"}
+        allowed = {"school": "school_mode", "time": "screen_time", "pawberry": "pawberry", "grove": "number_grove", "typing": "paw_post"}
         for name, package in allowed.items():
             if modules is not None and name not in modules:
                 continue
@@ -177,6 +177,7 @@ class Daemon:
             while not self.stop_event.is_set():
                 now, elapsed = self.clock.tick()
                 write_json(self.clock_path, {"last_logical": now})
+                delay = self.tick_seconds
                 with self.lock:
                     for name, service in self.services.items():
                         try:
@@ -185,7 +186,10 @@ class Daemon:
                         except Exception as exc:
                             self.health[name] = {"healthy": False, "error": type(exc).__name__}
                             self.log(f"{name} update failed: {exc}")
-                self.stop_event.wait(self.tick_seconds)
+                    school = self.services.get("school")
+                    if school is not None:
+                        delay = school.next_delay(self.clock.now(), delay)
+                self.stop_event.wait(delay)
         finally:
             with self.lock:
                 write_json(self.clock_path, {"last_logical": self.clock.now()})
@@ -199,5 +203,5 @@ class Daemon:
             self.server.close()
 
 
-def main():
-    Daemon(paths.detect(), tick_seconds=float(os.environ.get("SCREEN_TIME_TICK_SECONDS", "5"))).run()
+def main(modules=None):
+    Daemon(paths.detect(), tick_seconds=float(os.environ.get("SCREEN_TIME_TICK_SECONDS", "5")), modules=modules).run()

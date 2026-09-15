@@ -2,7 +2,7 @@
 import copy
 import os
 import pwd
-from . import config
+from . import config, pam_setup
 from .policy import Policy
 from omarchy_kids.core import session
 from omarchy_kids.core.storage import read_json, write_json, school_config_path, public_status
@@ -14,6 +14,8 @@ class Service:
         self.path = school_config_path(host.layout)
         self.config = config.sanitize(read_json(self.path, {}))
         self.policies = {}
+        self.sessions = {}
+        self.last_lock = {}
 
     def managed_uids(self):
         result = []
@@ -41,14 +43,21 @@ class Service:
 
     def snapshot(self, uid, now):
         policy = self.policy_for(uid)
-        return policy.snapshot(now) if policy else {}
+        if policy is None:
+            return {}
+        before = policy.export_override()
+        result = policy.snapshot(now)
+        if policy.export_override() != before:
+            write_json(self.override_path(uid), policy.export_override())
+        return result
 
     def status(self, uid, now):
         policy = self.policy_for(uid)
         if policy is None:
             return {"ok": False, "error": "not_managed", "enabled": False, "schemaVersion": 1}
         return {"ok": True, "enabled": True, "schemaVersion": 1,
-                **policy.snapshot(now), "blocked_periods": policy.profile["blocked_periods"]}
+                **self.snapshot(uid, now), "blocked_periods": policy.profile["blocked_periods"],
+                "free_time_timer_version": 1, "free_time_ready": pam_setup.ready()}
 
     def publish(self, uid, now):
         data = self.status(uid, now)
@@ -56,7 +65,11 @@ class Service:
                   "revision": data.get("revision", 0), "mode": data.get("mode", "free"),
                   "modeReason": data.get("mode_reason", ""), "schoolApps": data.get("school_apps", []),
                   "schoolUntil": data.get("school_until", ""), "schoolLabel": data.get("school_label", ""),
-                  "blockedPeriods": data.get("blocked_periods", [])}
+                  "blockedPeriods": data.get("blocked_periods", []),
+                  "freeTimeTimerVersion": 1, "freeTimeReady": data.get("free_time_ready", False),
+                  "freeTimeMinutes": data.get("free_time_minutes", 30),
+                  "freeTimeRemainingSeconds": data.get("free_time_remaining_seconds", 0),
+                  "freeTimeExpired": data.get("free_time_expired", False)}
         public_status(self.host.layout, session.username_for(uid), "school-mode", public)
 
     def dispatch(self, peer, message):
@@ -115,6 +128,8 @@ class Service:
                 if policy is None:
                     return {"ok": False, "error": "not_managed"}
                 now = self.host.clock.now()
+                if mode == "free" and not pam_setup.ready():
+                    return {"ok": False, "error": "timer_setup_required"}
                 result = policy.set_mode(mode, now, by_parent)
                 if result["ok"]:
                     write_json(self.override_path(uid), policy.export_override())
@@ -126,6 +141,14 @@ class Service:
         with self.host.lock:
             if uid not in self.managed_uids():
                 return {"ok": False, "error": "not_managed"}
+            if command == "free-time.unlock":
+                now = self.host.clock.now()
+                if not self.snapshot(uid, now).get("free_time_expired"):
+                    return {"ok": False, "error": "not_expired"}
+                result = self.policy_for(uid).set_mode("school", now, True)
+                write_json(self.override_path(uid), self.policy_for(uid).export_override())
+                self.host.refresh(now)
+                return result
             if command == "config.get":
                 return {"ok": True, "config": copy.deepcopy(self.config)}
             if command == "config.patch":
@@ -133,17 +156,44 @@ class Service:
                 if not config.valid_patch(patch):
                     return {"ok": False, "error": "bad_patch"}
                 key = self.config["users"][session.username_for(uid)]["profile"]
+                now = self.host.clock.now()
+                # Settle the existing deadline before applying a changed schedule.
+                for target in self.managed_uids():
+                    self.snapshot(target, now)
                 self.config["profiles"][key] = config.sanitize_profile({**self.config["profiles"][key], **patch})
-                for policy in self.policies.values():
+                for target in self.managed_uids():
+                    policy = self.policy_for(target)
+                    if "blocked_periods" in patch:
+                        policy.reschedule(now)
                     policy.revision += 1
                 write_json(self.path, self.config)
-                self.host.refresh(self.host.clock.now())
+                self.host.refresh(now)
                 return {"ok": True, "profile": key}
         return {"ok": False, "error": "unknown_command"}
 
     def tick(self, now, elapsed):
         for uid in self.managed_uids():
+            data = self.snapshot(uid, now)
             self.publish(uid, now)
+            if data.get("mode") != "free" or not data.get("free_time_expired"):
+                self.last_lock.pop(uid, None)
+                continue
+            if uid not in self.sessions:
+                self.sessions[uid] = session.SessionWatcher(uid)
+            watcher = self.sessions[uid].poll()
+            if watcher.present and not watcher.locked and now - self.last_lock.get(uid, 0) >= 5:
+                if uid not in self.last_lock:
+                    session.notify(uid, "Free Time has ended", "Enter the parent password to return to School Mode.")
+                self.last_lock[uid] = now
+                session.lock(uid, watcher.session_id)
+
+    def next_delay(self, now, maximum):
+        for uid in self.managed_uids():
+            policy = self.policy_for(uid)
+            if policy.mode_override == "free" and not policy.free_expired:
+                deadline = min(policy.free_until, policy.mode_override_until)
+                maximum = min(maximum, max(0.05, deadline - now))
+        return maximum
 
     def save(self):
         for uid, policy in self.policies.items():

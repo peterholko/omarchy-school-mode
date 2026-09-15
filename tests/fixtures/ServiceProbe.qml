@@ -17,8 +17,15 @@ Item {
       serviceLoader.item.loadStatus('{"schemaVersion":1,"enabled":false}')
     else if (action === "invalid")
       serviceLoader.item.loadStatus('{"schemaVersion":99,"enabled":false}')
+    else if (action === "timer" || action === "same-timer")
+      serviceLoader.item.loadStatus('{"schemaVersion":1,"enabled":true,"mode":"free","updatedAt":100,"freeTimeTimerVersion":1,"freeTimeReady":true,"freeTimeRemainingSeconds":1800}')
+    else if (action === "elapse") {
+      serviceLoader.item.countdownReadAt -= 3000
+      serviceLoader.item.countdownNow = Date.now()
+    }
     return JSON.stringify({commands: Quickshell.detachedCommands,
       connected: serviceLoader.item ? serviceLoader.item.connected : false,
-      school: serviceLoader.item ? serviceLoader.item.schoolMode : false})
+      school: serviceLoader.item ? serviceLoader.item.schoolMode : false,
+      countdown: serviceLoader.item ? serviceLoader.item.countdownText : ""})
   }
 }

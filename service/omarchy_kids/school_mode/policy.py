@@ -1,6 +1,8 @@
-"""School schedule and parent-authorized mode policy, without time accounting."""
+"""School schedules and durable, parent-granted Free Time allowances."""
+import math
 from datetime import datetime, timedelta
-from omarchy_kids.core.periods import covers, active_period
+from omarchy_kids.core.periods import active_period, DAYS
+
 
 class Policy:
     def __init__(self, profile):
@@ -9,6 +11,9 @@ class Policy:
         self.mode_override_until = 0.0
         self.mode_override_by_parent = False
         self.mode_override_suppresses_schedule = False
+        self.free_until = 0.0
+        self.free_expired = False
+        self.last_seen = 0.0
         self.revision = 0
 
     def free_period(self, now):
@@ -27,73 +32,113 @@ class Policy:
     def _day_end(now):
         return (datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).timestamp()
 
+    def next_school_start(self, now):
+        moment = datetime.fromtimestamp(now)
+        starts = [now + 8 * 86400]  # Beyond any allowed Free Time duration.
+        for offset in range(8):
+            day = moment + timedelta(days=offset)
+            for period in self.profile['blocked_periods']:
+                if not period['enabled'] or DAYS[day.weekday()] not in period['days']:
+                    continue
+                hour, minute = map(int, period['start'].split(':'))
+                start = day.replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
+                if start > now:
+                    starts.append(start)
+        return min(starts)
+
+    def reschedule(self, now):
+        if self.mode_override == 'free' and not self.free_expired:
+            self.mode_override_until = (now if self.free_period(now) and not self.mode_override_suppresses_schedule
+                                        else self.next_school_start(now))
+
     def effective_mode(self, now):
-        """(mode, reason): school or free, and why."""
+        self.last_seen = max(self.last_seen, now)
+        now = self.last_seen
+        # Expiry survives mode requests and reboot until a parent returns to School.
+        if self.free_expired:
+            return "free", "expired"
         period = self.free_period(now)
-        if self.mode_override and now < self.mode_override_until:
-            # A free-time override created before school started yields when
-            # the schedule begins. Only the parent's explicit exception while
-            # that school period was already active suppresses it.
-            if self.mode_override != "free" or period is None \
-                    or self.mode_override_suppresses_schedule:
-                return self.mode_override, ("parent" if self.mode_override_by_parent else "chosen")
-        if self.mode_override is not None:
-            self.revision += 1
-        self.mode_override = None
-        self.mode_override_by_parent = False
-        self.mode_override_suppresses_schedule = False
+        if self.mode_override == "free" and self.free_until:
+            school_due = now >= self.mode_override_until and self.mode_override_until <= self.free_until
+            if school_due:
+                self.free_until = 0.0
+                self.mode_override = None
+                self.revision += 1
+            elif now >= self.free_until:
+                self.free_expired = True
+                self.revision += 1
+                return "free", "expired"
+            else:
+                return "free", "parent"
+        if self.mode_override == "school" and now < self.mode_override_until:
+            return "school", "parent" if self.mode_override_by_parent else "chosen"
         if period is not None:
             return "school", "schedule"
-        return "free", "free"
+        # Finishing school hours never grants free minutes without a parent.
+        return "school", "ready"
 
     def set_mode(self, mode, now, by_parent):
-        period = self.free_period(now)
-        selects_free = mode == "free" or (mode == "auto" and period is None)
-        if selects_free and not by_parent:
-            refusal = {"ok": False, "error": "parent_required"}
-            if period is not None:
-                refusal.update({"until": period["end"], "label": period["label"]})
-            return refusal
-        if mode == "auto":
-            self.mode_override = None
-            self.mode_override_by_parent = False
-            self.mode_override_suppresses_schedule = False
-        elif mode == "school":
-            self.mode_override = "school"
-            self.mode_override_until = self._day_end(now)
-            self.mode_override_by_parent = by_parent
-            self.mode_override_suppresses_schedule = False
-        elif mode == "free":
-            self.mode_override = "free"
-            self.mode_override_until = self._period_end(period, now) if period else self._day_end(now)
-            self.mode_override_by_parent = by_parent
-            self.mode_override_suppresses_schedule = period is not None
-        else:
+        self.effective_mode(now)
+        now = self.last_seen
+        if mode not in ("school", "free", "auto"):
             return {"ok": False, "error": "bad_mode"}
+        if (mode == "free" or self.free_expired) and not by_parent:
+            return {"ok": False, "error": "parent_required"}
+        if self.free_expired and mode == "free":
+            return {"ok": False, "error": "unlock_to_school"}
+        period = self.free_period(now)
+        self.free_expired = False
+        self.free_until = 0.0
+        self.mode_override_by_parent = bool(by_parent)
+        self.mode_override_suppresses_schedule = False
+        self.mode_override = None if mode == "auto" else mode
+        self.mode_override_until = self._day_end(now)
+        if mode == "free":
+            self.free_until = now + self.profile["free_time_minutes"] * 60
+            self.mode_override_until = self.next_school_start(now)
+            self.mode_override_suppresses_schedule = period is not None
         self.revision += 1
         return {"ok": True, **self.mode_status(now)}
 
     def mode_status(self, now):
         mode, reason = self.effective_mode(now)
-        period = self.free_period(now)
+        period = self.free_period(self.last_seen)
+        remaining = max(0, math.ceil(self.free_until - self.last_seen)) if mode == "free" and not self.free_expired else 0
         return {"mode": mode, "mode_reason": reason,
                 "school_until": period["end"] if period else "",
                 "school_label": period["label"] if period else "",
-                "school_apps": list(self.profile["school_apps"])}
+                "school_apps": list(self.profile["school_apps"]),
+                "free_time_minutes": self.profile["free_time_minutes"],
+                "free_time_remaining_seconds": remaining,
+                "free_time_expired": self.free_expired,
+                "free_time_deadline": self.free_until if mode == "free" else 0.0}
 
     def snapshot(self, now):
-        return {**self.mode_status(now), "active_period": self.free_period(now), "revision": self.revision}
+        return {**self.mode_status(now), "active_period": self.free_period(self.last_seen), "revision": self.revision}
 
     def export_override(self):
-        return {key: getattr(self, key) for key in ("mode_override", "mode_override_until", "mode_override_by_parent", "mode_override_suppresses_schedule")}
+        fields = ("mode_override", "mode_override_until", "mode_override_by_parent", "mode_override_suppresses_schedule",
+                  "free_until", "free_expired", "last_seen", "revision")
+        return {"timer_version": 1, **{key: getattr(self, key) for key in fields}}
 
     def restore_override(self, raw, now):
-        if not isinstance(raw, dict) or raw.get("mode_override") not in ("school", "free"):
+        if not isinstance(raw, dict):
             return
-        until = raw.get("mode_override_until", 0)
-        if not isinstance(until, (int, float)) or not now < until <= self._day_end(now):
+        if raw.get("timer_version") != 1:
+            # Preserve School choices. Old unlimited Free Time is not a new grant.
+            if raw.get("mode_override") == "school":
+                self.set_mode("school", now, raw.get("mode_override_by_parent") is True)
             return
-        for key in self.export_override():
-            if key in raw:
-                setattr(self, key, raw[key])
+        if raw.get("mode_override") not in (None, "school", "free"):
+            return
+        for key in ("mode_override_until", "free_until", "last_seen"):
+            value = raw.get(key, 0.0)
+            if type(value) not in (float, int) or not math.isfinite(value) or value < 0:
+                return
+        self.mode_override = raw.get("mode_override")
+        for key in ("mode_override_until", "free_until", "last_seen"):
+            setattr(self, key, float(raw.get(key, 0.0)))
+        for key in ("mode_override_by_parent", "mode_override_suppresses_schedule", "free_expired"):
+            setattr(self, key, raw.get(key) is True)
+        self.revision = raw.get("revision", 0) if type(raw.get("revision")) is int else 0
         self.effective_mode(now)

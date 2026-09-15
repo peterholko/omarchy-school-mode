@@ -19,6 +19,8 @@ Item {
   property color noteColor: Color.foreground
   property var localPeriods: []
   property var localApps: []
+  property string settingsPage: "school"
+  property int localFreeTimeMinutes: 30
   property var pendingPatch: null
   property var activePatch: null
   readonly property bool savingApps: (activePatch !== null && activePatch.school_apps !== undefined)
@@ -59,6 +61,8 @@ Item {
     var profile = config && config.profiles ? config.profiles[key || config.active_profile] : null
     root.localPeriods = Schedule.schoolPeriods(profile ? profile.blocked_periods : (root.service ? root.service.blockedPeriods : []))
     root.localApps = Allowlist.normalizeIds(profile ? profile.school_apps : (root.service ? root.service.allowedDesktopIds : []))
+    root.localFreeTimeMinutes = profile && Number.isInteger(profile.free_time_minutes) ? profile.free_time_minutes : 30
+    root.settingsPage = "school"
     win.visible = true
   }
 
@@ -133,7 +137,20 @@ Item {
     root.noteColor = root.errColor
   }
 
+  function saveFreeTime(value) {
+    var text = String(value).trim()
+    var minutes = Number(text)
+    if (!/^\d+$/.test(text) || !Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+      root.note = "Enter a whole number from 1 to 1440 minutes."
+      root.noteColor = root.errColor
+      return
+    }
+    root.localFreeTimeMinutes = minutes
+    root.patch({ "free_time_minutes": minutes })
+  }
+
   function patch(obj) {
+    if (root.password === "") return
     // Day buttons are easy to click faster than a process can finish. Keep
     // the newest array for each setting, so an hours edit cannot discard an
     // app choice waiting for the same process.
@@ -171,7 +188,7 @@ Item {
       else if (payload && payload.error === "bad_password")
         root.note = "The parent password is no longer accepted. Close this window and unlock it again."
       else
-        root.note = "Could not save school settings. Try again."
+        root.note = "Could not save settings. Try again."
     }
     root.activePatch = null
     Qt.callLater(root.sendPendingPatch)
@@ -191,12 +208,13 @@ Item {
   FloatingWindow {
     id: win
     visible: false
-    title: "School settings"
+    title: "School Mode / Free Time settings"
     color: Color.background
     implicitWidth: 520
     implicitHeight: 660
     minimumSize: Qt.size(520, 420)
     maximumSize: Qt.size(520, 760)
+    onVisibleChanged: if (!visible) { root.password = ""; root.pendingPatch = null }
 
     FocusScope {
       anchors.fill: parent
@@ -210,9 +228,29 @@ Item {
         }
       }
 
+      Row {
+        id: pageTabs
+        anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+        anchors.margins: Style.space(20)
+        spacing: Style.space(8)
+        Button {
+          objectName: "schoolModeTab"
+          width: (pageTabs.width - pageTabs.spacing) / 2
+          text: "School Mode"; selected: root.settingsPage === "school"; bordered: true; focusable: true
+          onClicked: root.settingsPage = "school"
+        }
+        Button {
+          objectName: "freeTimeTab"
+          width: (pageTabs.width - pageTabs.spacing) / 2
+          text: "Free Time"; selected: root.settingsPage === "free"; bordered: true; focusable: true
+          onClicked: root.settingsPage = "free"
+        }
+      }
+
       ScrollView {
         id: scrollArea
-        anchors.fill: parent
+        anchors.top: pageTabs.bottom; anchors.bottom: parent.bottom
+        anchors.left: parent.left; anchors.right: parent.right
         anchors.margins: Style.space(20)
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -222,176 +260,233 @@ Item {
           width: scrollArea.availableWidth
           spacing: Style.space(14)
 
-          PanelSectionHeader {
-            text: "SCHOOL APPS"
-            foreground: Color.foreground
-          }
-
-          Repeater {
-            model: root.schoolAppChoices
-            delegate: Toggle {
-              required property var modelData
-              readonly property bool installed: Allowlist.contains(root.installedAppIds, modelData.desktopId)
-              objectName: modelData.controlName
-              width: content.width
-              label: modelData.name
-              description: root.savingApps ? "Saving…" : (installed
-                ? "Allow " + modelData.practice + " during School Mode."
-                : "Install " + modelData.name + " to make " + modelData.practice + " available.")
-              checked: Allowlist.contains(root.localApps, modelData.desktopId)
-              enabled: root.password !== "" && !root.savingApps && (installed || checked)
-              opacity: enabled || root.savingApps ? 1 : 0.6
-              onClicked: root.setAppAllowed(modelData.desktopId, !checked)
+          Column {
+            objectName: "schoolSettingsPage"
+            width: content.width; spacing: Style.space(14)
+            visible: root.settingsPage === "school"
+            PanelSectionHeader {
+              text: "SCHOOL APPS"
+              foreground: Color.foreground
             }
-          }
 
-          PanelSeparator { width: parent.width }
-
-          PanelSectionHeader {
-            text: "SCHOOL HOURS"
-            foreground: Color.foreground
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            text: "At these times the laptop enters School Mode automatically. Only a parent can return it to Free Time."
-            width: parent.width
-            wrapMode: Text.WordWrap
-            color: root.fadeText(0.5)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
-
-          PanelSeparator { width: parent.width }
-
-          Text {
-            textFormat: Text.PlainText
-            visible: root.localPeriods.length === 0
-            text: "No school hours yet. Add a schedule to turn School Mode on automatically."
-            width: parent.width
-            wrapMode: Text.WordWrap
-            color: root.fadeText(0.5)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-
-          Repeater {
-            model: root.localPeriods
-
-            delegate: Column {
-              id: periodRow
-              required property var modelData
-              required property int index
-              width: content.width
-              spacing: Style.space(8)
-
-              Row {
-                id: periodTop
-                width: parent.width
-                spacing: Style.space(8)
-
-                ToggleSwitch {
-                  id: periodToggle
-                  anchors.verticalCenter: parent.verticalCenter
-                  checked: periodRow.modelData.enabled === true
-                  onToggled: root.setPeriod(periodRow.index, "enabled", !periodRow.modelData.enabled)
-                }
-
-                TextField {
-                  width: periodTop.width - periodToggle.width - periodRemove.width - periodTop.spacing * 2
-                  text: String(periodRow.modelData.label || "School")
-                  placeholderText: "School"
-                  activeFocusOnTab: true
-                  onEditingFinished: root.setPeriod(periodRow.index, "label", text.trim() || "School")
-                }
-
-                PanelActionButton {
-                  id: periodRemove
-                  iconText: root.iconClose
-                  tooltipText: "Remove these school hours"
-                  foreground: Color.foreground
-                  hoverColor: root.errColor
-                  size: Style.space(22)
-                  focusable: true
-                  anchors.verticalCenter: parent.verticalCenter
-                  onClicked: root.removePeriod(periodRow.index)
-                }
-              }
-
-              Row {
-                spacing: Style.space(8)
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: "from"
-                  color: root.fadeText(0.4)
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.body
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-                TextField {
-                  id: startField
-                  width: Style.space(64)
-                  text: String(periodRow.modelData.start || "")
-                  activeFocusOnTab: true
-                  onEditingFinished: root.saveTime(periodRow.index, "start", text, startField)
-                }
-                Text {
-                  textFormat: Text.PlainText
-                  text: "until"
-                  color: root.fadeText(0.4)
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.body
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-                TextField {
-                  id: endField
-                  width: Style.space(64)
-                  text: String(periodRow.modelData.end || "")
-                  activeFocusOnTab: true
-                  onEditingFinished: root.saveTime(periodRow.index, "end", text, endField)
-                }
-              }
-
-              Row {
-                spacing: Style.space(4)
-                Repeater {
-                  model: root.dayKeys.length
-                  delegate: Button {
-                    text: root.dayLabels[index]
-                    bordered: true
-                    focusable: true
-                    selected: (periodRow.modelData.days || []).indexOf(root.dayKeys[index]) >= 0
-                    onClicked: root.togglePeriodDay(periodRow.index, root.dayKeys[index])
-                  }
-                }
-              }
-
-              PanelSeparator {
-                width: parent.width
-                visible: periodRow.index < root.localPeriods.length - 1
+            Repeater {
+              model: root.schoolAppChoices
+              delegate: Toggle {
+                required property var modelData
+                readonly property bool installed: Allowlist.contains(root.installedAppIds, modelData.desktopId)
+                objectName: modelData.controlName
+                width: content.width
+                label: modelData.name
+                description: root.savingApps ? "Saving…" : (installed
+                  ? "Allow " + modelData.practice + " during School Mode."
+                  : "Install " + modelData.name + " to make " + modelData.practice + " available.")
+                checked: Allowlist.contains(root.localApps, modelData.desktopId)
+                enabled: root.password !== "" && !root.savingApps && (installed || checked)
+                opacity: enabled || root.savingApps ? 1 : 0.6
+                onClicked: root.setAppAllowed(modelData.desktopId, !checked)
               }
             }
-          }
 
-          Row {
-            spacing: Style.space(8)
+            PanelSeparator { width: parent.width }
 
-            Button {
-              text: "Add school time"
-              focusable: true
-              enabled: root.canAddPeriod()
-              onClicked: root.addPeriod()
+            PanelSectionHeader {
+              text: "SCHOOL HOURS"
+              foreground: Color.foreground
             }
 
             Text {
               textFormat: Text.PlainText
-              visible: !root.canAddPeriod()
-              text: "The eight-period Screen Time limit is full."
+              text: "At these times the laptop enters School Mode automatically. Only a parent can return it to Free Time."
+              width: parent.width
+              wrapMode: Text.WordWrap
               color: root.fadeText(0.5)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              anchors.verticalCenter: parent.verticalCenter
+            }
+
+            PanelSeparator { width: parent.width }
+
+            Text {
+              textFormat: Text.PlainText
+              visible: root.localPeriods.length === 0
+              text: "No school hours yet. Add a schedule to turn School Mode on automatically."
+              width: parent.width
+              wrapMode: Text.WordWrap
+              color: root.fadeText(0.5)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+            }
+
+            Repeater {
+              model: root.localPeriods
+
+              delegate: Column {
+                id: periodRow
+                required property var modelData
+                required property int index
+                width: content.width
+                spacing: Style.space(8)
+
+                Row {
+                  id: periodTop
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  ToggleSwitch {
+                    id: periodToggle
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: periodRow.modelData.enabled === true
+                    onToggled: root.setPeriod(periodRow.index, "enabled", !periodRow.modelData.enabled)
+                  }
+
+                  TextField {
+                    width: periodTop.width - periodToggle.width - periodRemove.width - periodTop.spacing * 2
+                    text: String(periodRow.modelData.label || "School")
+                    placeholderText: "School"
+                    activeFocusOnTab: true
+                    onEditingFinished: root.setPeriod(periodRow.index, "label", text.trim() || "School")
+                  }
+
+                  PanelActionButton {
+                    id: periodRemove
+                    iconText: root.iconClose
+                    tooltipText: "Remove these school hours"
+                    foreground: Color.foreground
+                    hoverColor: root.errColor
+                    size: Style.space(22)
+                    focusable: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    onClicked: root.removePeriod(periodRow.index)
+                  }
+                }
+
+                Row {
+                  spacing: Style.space(8)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "from"
+                    color: root.fadeText(0.4)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+                  TextField {
+                    id: startField
+                    width: Style.space(64)
+                    text: String(periodRow.modelData.start || "")
+                    activeFocusOnTab: true
+                    onEditingFinished: root.saveTime(periodRow.index, "start", text, startField)
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "until"
+                    color: root.fadeText(0.4)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+                  TextField {
+                    id: endField
+                    width: Style.space(64)
+                    text: String(periodRow.modelData.end || "")
+                    activeFocusOnTab: true
+                    onEditingFinished: root.saveTime(periodRow.index, "end", text, endField)
+                  }
+                }
+
+                Row {
+                  spacing: Style.space(4)
+                  Repeater {
+                    model: root.dayKeys.length
+                    delegate: Button {
+                      text: root.dayLabels[index]
+                      bordered: true
+                      focusable: true
+                      selected: (periodRow.modelData.days || []).indexOf(root.dayKeys[index]) >= 0
+                      onClicked: root.togglePeriodDay(periodRow.index, root.dayKeys[index])
+                    }
+                  }
+                }
+
+                PanelSeparator {
+                  width: parent.width
+                  visible: periodRow.index < root.localPeriods.length - 1
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.space(8)
+
+              Button {
+                text: "Add school time"
+                focusable: true
+                enabled: root.canAddPeriod()
+                onClicked: root.addPeriod()
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                visible: !root.canAddPeriod()
+                text: "All eight school schedules are in use."
+                color: root.fadeText(0.5)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+          }
+
+          Column {
+            objectName: "freeTimeSettingsPage"
+            width: content.width; spacing: Style.space(14)
+            visible: root.settingsPage === "free"
+            PanelSectionHeader { text: "FREE TIME ALLOWANCE"; foreground: Color.foreground }
+            Text {
+              width: parent.width; wrapMode: Text.WordWrap
+              text: "Each time a parent starts Free Time, the laptop gets this many minutes."
+              color: root.fadeText(0.35); font.family: Style.font.family; font.pixelSize: Style.font.body
+            }
+            Row {
+              spacing: Style.space(10)
+              TextField {
+                id: minutesField
+                objectName: "freeTimeMinutesField"
+                width: Style.space(86)
+                text: String(root.localFreeTimeMinutes)
+                validator: IntValidator { bottom: 1; top: 1440 }
+                inputMethodHints: Qt.ImhDigitsOnly
+                activeFocusOnTab: true
+                onAccepted: root.saveFreeTime(text)
+              }
+              Text {
+                text: "minutes"; anchors.verticalCenter: parent.verticalCenter
+                color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body
+              }
+              Button {
+                objectName: "saveFreeTimeButton"
+                text: "Save"; focusable: true
+                enabled: root.password !== "" && !patchProc.running
+                onClicked: root.saveFreeTime(minutesField.text)
+              }
+            }
+            Text {
+              width: parent.width; wrapMode: Text.WordWrap
+              text: "Default: 30 minutes. Changes apply to the next allowance."
+              color: root.fadeText(0.5); font.family: Style.font.family; font.pixelSize: Style.font.caption
+            }
+            PanelSeparator { width: parent.width }
+            PanelSectionHeader { text: "WHEN TIME RUNS OUT"; foreground: Color.foreground }
+            Text {
+              width: parent.width; wrapMode: Text.WordWrap
+              text: "The screen locks. Enter the parent password to unlock and return to School Mode. A parent must start Free Time again for another allowance."
+              color: root.fadeText(0.35); font.family: Style.font.family; font.pixelSize: Style.font.body
+            }
+            Text {
+              width: parent.width; wrapMode: Text.WordWrap
+              text: "Before time runs out, your child can unlock normally. The countdown continues while the screen is locked or the laptop sleeps. Returning to School Mode cancels it. School Mode has no timer lock."
+              color: root.fadeText(0.5); font.family: Style.font.family; font.pixelSize: Style.font.caption
             }
           }
 
@@ -402,7 +497,7 @@ Item {
 
             Text {
               textFormat: Text.PlainText
-              text: root.note !== "" ? root.note : "Changes apply immediately."
+              text: root.note !== "" ? root.note : (root.settingsPage === "free" ? "Applies to the next allowance." : "Changes apply immediately.")
               color: root.note !== "" ? root.noteColor : root.fadeText(0.5)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption

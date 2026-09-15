@@ -22,6 +22,16 @@ Item {
   property var allowedDesktopIds: []
   property var blockedPeriods: []
   property string desktopError: ""
+  property int timerVersion: 0
+  property bool freeTimeReady: false
+  property int freeTimeMinutes: 30
+  property int freeTimeRemainingSeconds: 0
+  property bool freeTimeExpired: false
+  property double countdownReadAt: Date.now()
+  property double countdownNow: Date.now()
+  property string countdownSnapshot: ""
+  readonly property int countdownSeconds: schoolMode ? 0 : Math.max(0, freeTimeRemainingSeconds - Math.max(0, Math.floor((countdownNow - countdownReadAt) / 1000)))
+  readonly property string countdownText: Math.floor(countdownSeconds / 60) + ":" + String(countdownSeconds % 60).padStart(2, "0")
   readonly property bool schoolMode: schoolEnabled && mode === "school"
   signal allowlistChanged()
 
@@ -39,6 +49,18 @@ Item {
     schoolUntil = state.schoolUntil
     schoolLabel = state.schoolLabel
     blockedPeriods = state.blockedPeriods
+    timerVersion = state.timerVersion
+    freeTimeReady = state.timerReady
+    freeTimeMinutes = state.freeTimeMinutes
+    freeTimeRemainingSeconds = state.freeTimeRemainingSeconds
+    freeTimeExpired = state.freeTimeExpired
+    countdownNow = Date.now()
+    var snapshot = JSON.stringify([state.updatedAt, state.enabled, state.mode, state.freeTimeRemainingSeconds, state.freeTimeExpired])
+    // Polling an unchanged status file must not put seconds back on the clock.
+    if (snapshot !== countdownSnapshot) {
+      countdownSnapshot = snapshot
+      countdownReadAt = countdownNow
+    }
     var ids = Allowlist.normalizeIds(state.schoolApps)
     if (JSON.stringify(ids) !== JSON.stringify(allowedDesktopIds)) {
       allowedDesktopIds = ids
@@ -53,6 +75,11 @@ Item {
     onFileChanged: reload()
     onLoaded: root.loadStatus(text())
     onLoadFailed: root.connected = false
+  }
+  Timer {
+    interval: 1000; repeat: true
+    running: root.connected && root.schoolEnabled && !root.schoolMode
+    onTriggered: root.countdownNow = Date.now()
   }
   Process {
     id: desktop
