@@ -1,0 +1,4 @@
+{
+  "type": "object",
+  "properties": {"SchoolModeInstalled": {"type": "boolean", "title": "School Mode integration is installed"}}
+}

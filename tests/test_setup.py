@@ -43,6 +43,11 @@ class Setup(unittest.TestCase):
         original_plan,original_install=pam_setup.plan,pam_setup.install
         self.context.enter_context(patch.object(pam_setup,'plan',lambda:original_plan(pam_dir,receipt,os.getuid())))
         self.context.enter_context(patch.object(pam_setup,'install',lambda plan:original_install(plan,pam_dir,receipt)))
+        from omarchy_kids.school_mode import websites_setup
+        website_etc = self.root / 'browser-etc'; website_etc.mkdir()
+        website_plan, website_install = websites_setup.plan, websites_setup.install
+        self.context.enter_context(patch.object(websites_setup, 'plan', lambda: website_plan(m.CONFIG, m.STATE, website_etc)))
+        self.context.enter_context(patch.object(websites_setup, 'install', lambda previous: website_install(previous, m.CONFIG, m.STATE, website_etc)))
         original_is_file=Path.is_file
         self.context.enter_context(patch.object(Path,'is_file',lambda path:True if str(path)=='/usr/share/omarchy/config/omarchy/shell.json' else original_is_file(path)))
 
@@ -99,7 +104,7 @@ class Setup(unittest.TestCase):
             self.install('pawberry')
             remove.assert_called_once_with()
         self.assertFalse(obsolete.exists())
-        self.assertEqual(m.installed()['version'], '4.1.0')
+        self.assertEqual(m.installed()['version'], '4.2.0')
         self.assertEqual(m.installed()['modules'], ['pawberry', 'school'])
         self.assertEqual((m.CONFIG/'school-mode.json').read_text(), school)
         self.assertNotIn('/var/lib/peterholko-screen-time', m.UNIT.read_text())
@@ -120,6 +125,24 @@ class Setup(unittest.TestCase):
         self.assertEqual(counts.read_text(),'{"multiply":7}')
         self.assertTrue((self.root/'bin/omarchy-kids-controls-school-pam').is_file())
         self.assertTrue((m.CONFIG/'school-pam.json').is_file())
+
+    def test_browser_preparation_failure_can_resume_with_the_verified_previous_unit(self):
+        from omarchy_kids.school_mode import websites_setup
+        m = self.manage
+        m.PASSWORD_PATH.write_text('{"hash":"existing controls password"}')
+        self.install('school')
+        marker = m.installed()
+        old_unit = marker['unit'].replace('ReadWritePaths=-/etc/chromium/policies/managed -/etc/opt/chrome/policies/managed\n', '')
+        marker.update(version='4.1.0', unit=old_unit)
+        m.write_json(m.MARKER, marker)
+        m.UNIT.write_text(old_unit)
+        with patch.object(websites_setup, 'install', side_effect=OSError('fixture interrupted browser setup')):
+            with self.assertRaisesRegex(OSError, 'interrupted'):
+                self.install('school')
+        self.assertEqual(m.installed()['previous_unit'], old_unit)
+        self.install('school')
+        self.assertNotIn('previous_unit', m.installed())
+        self.assertIn('/etc/chromium/policies/managed', m.UNIT.read_text())
 
 
 class ProviderRemoval(unittest.TestCase):

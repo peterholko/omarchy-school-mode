@@ -27,6 +27,7 @@ Item {
   property int freeTimeMinutes: 30
   property int freeTimeRemainingSeconds: 0
   property bool freeTimeExpired: false
+  property var websitesStatus: ({})
   property double countdownReadAt: Date.now()
   property double countdownNow: Date.now()
   property string countdownSnapshot: ""
@@ -54,6 +55,7 @@ Item {
     freeTimeMinutes = state.freeTimeMinutes
     freeTimeRemainingSeconds = state.freeTimeRemainingSeconds
     freeTimeExpired = state.freeTimeExpired
+    websitesStatus = state.websites
     countdownNow = Date.now()
     var snapshot = JSON.stringify([state.updatedAt, state.enabled, state.mode, state.freeTimeRemainingSeconds, state.freeTimeExpired])
     // Polling an unchanged status file must not put seconds back on the clock.

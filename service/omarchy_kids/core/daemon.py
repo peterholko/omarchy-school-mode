@@ -195,6 +195,8 @@ class Daemon:
                 write_json(self.clock_path, {"last_logical": self.clock.now()})
                 for service in self.services.values():
                     service.save()
+                    if hasattr(service, "websites"):
+                        service.websites.close()
             self.layout.socket_path.unlink(missing_ok=True)
 
     def shutdown(self, *_):

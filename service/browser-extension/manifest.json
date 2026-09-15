@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "School Mode Websites",
+  "description": "Applies this laptop's parent-approved School Mode website rules locally.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "120",
+  "permissions": ["tabs", "storage", "nativeMessaging", "declarativeNetRequest", "alarms"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {"service_worker": "background.js"},
+  "storage": {"managed_schema": "schema.json"},
+  "update_url": "http://127.0.0.1:47651/update.xml"
+}

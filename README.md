@@ -1,6 +1,6 @@
 # School / Free Time
 
-Approved apps, school schedules and a parent-granted Free Time countdown in one plugin and one parent settings window. Free Time starts with **30 minutes** by default. When it expires, the native lock screen requires the **controls parent password**, then returns to School Mode.
+Approved apps, school schedules, optional School Mode website restrictions and a parent-granted Free Time countdown in one plugin and one parent settings window. Free Time starts with **30 minutes** by default. When it expires, the native lock screen requires the **controls parent password**, then returns to School Mode.
 
 A community plugin for **Omarchy Quattro with the Quickshell plugin system**. It works on a regular Omarchy installation; an Omarchy Kids ISO or fork is not required. The plugin ID is `io.github.peterholko.school-mode`.
 
@@ -43,11 +43,11 @@ In the enrolled user's desktop, run the following **without sudo**. This permits
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
-Click the book/sun widget to enter School Mode or start a parent-approved Free Time allowance. Open its settings gear to use the School Mode and Free Time tabs. Free Time and changes to the school schedule or school app list require the controls parent password; the password field displays checking feedback. The settings include optional school access to Number Grove, Paw Post Typing and Pawberry Pet Hotel when their desktop launchers are installed. Other school desktop IDs can be configured with the client’s `config patch` command.
+Click the book/sun widget to enter School Mode or start a parent-approved Free Time allowance. Open its settings gear to use the **School Mode**, **Free Time** and **Websites** tabs. Free Time and changes to any settings require the controls parent password; the password field displays checking feedback. The settings include optional school access to Number Grove, Paw Post Typing and Pawberry Pet Hotel when their desktop launchers are installed. Other school desktop IDs can be configured with the client’s `config patch` command.
 
 Free Time restores the existing [school and creativity app policy](docs/free-time-apps.md), plus the three learning games and Math Time. It does not expose every installed app. The policy matches exact desktop IDs; Discord, social/AI apps, supervision-only apps and unknown newly installed apps stay outside the launcher and its search. The default Omarchy menu's Community/Discord and app-install actions are not part of either child menu. Both retain Theme and Background under Style. Only installed apps appear; this update installs no applications.
 
-There is one browser profile. This plugin does not filter websites; use a separate DNS/browser policy if needed. Free Time restores the approved browser, Files, Omawrite, Obsidian, Cliamp, Google Maps, Khan Academy and Wikipedia shortcuts through the same app checks as the launcher. As in the original child profile, `Super+Return` remains available in Free Time for parent maintenance. The filtered launcher and standard shortcut changes do not prevent custom shortcuts, terminal commands or manually started applications, and do not terminate existing processes.
+The existing browser profile is retained. Free Time restores the approved browser, Files, Omawrite, Obsidian, Cliamp, Google Maps, Khan Academy and Wikipedia shortcuts through the same app checks as the launcher. As in the original child profile, `Super+Return` remains available in Free Time for parent maintenance. The filtered launcher and standard shortcut changes do not prevent custom shortcuts, terminal commands or manually started applications, and do not terminate existing processes.
 
 The desktop helper journals recovery before applying changes and changes only its own `disabledPlugins` entry in `~/.config/omarchy/shell.json`. Other bar and shell settings are preserved. It keeps a first-use backup under `~/.local/state/omarchy-community-school-mode/`. Custom `XDG_CONFIG_HOME` and `XDG_STATE_HOME` are respected by the helper. Desktop consent and launcher restrictions survive logout, shutdown and shell restarts. While school status is loading, the launcher shows no apps and the helper applies the restrictive school shortcuts; window parking waits for confirmed School Mode. The helper checks live compositor bindings and repairs its shortcuts if a later startup or configuration reload replaces them. Run `school-desktop.py disable` before disabling or removing the plugin; this also revokes desktop consent.
 
@@ -71,6 +71,24 @@ omarchy plugin disable peterholko.screen-time
 
 Do not re-enroll this account in another timer alongside School / Free Time. Pawberry Pet Hotel, Number Grove, Paw Post and the separate Math Time app remain independent; playing them cannot grant or extend this allowance. The existing read-only School Mode status remains compatible with other clients.
 
+## Websites
+
+Website restrictions start **off**, with an empty list. After running the updated setup:
+
+1. Open School / Free Time → settings and enter the controls parent password.
+2. Choose **Websites**, turn on **Block selected websites**, and enter one domain per line, such as `youtube.com` or `roblox.com`. Save websites.
+3. Reopen Chrome or Chromium after first enabling this feature. The Websites tab reports when a browser has received the rules; a saved list alone is not confirmation that the browser companion is running.
+
+Domains include their subdomains: `youtube.com` also covers `www.youtube.com` and `m.youtube.com`. Use up to 100 different domains across enrolled profiles. Do not enter URLs, paths or ports. International domain names use their ASCII/punycode form.
+
+**School Mode:** the saved domains are blocked, and already-open matching tabs in regular Chrome/Chromium windows move to a School Mode notice. Unrelated school tabs stay open. **Free Time:** these School-only restrictions are lifted; use the notice's retry button to return to a page. Pages do not reopen or start playing automatically. A scheduled School Mode start, reboot into School Mode, or parent unlock after Free Time expiry reapplies the rules. Websites never trigger a screen lock or change the timer.
+
+Chrome/Chromium policies apply to **all accounts on this laptop**. With multiple enrolled children, the effective list is the union of the enabled lists for accounts currently in School Mode. Another child's active School Mode can therefore keep a domain blocked during your account's Free Time; the tab reports this. Existing restrictions from other software remain in effect.
+
+This is browser filtering, not a system-wide network filter. Firefox, other browsers, native apps, proxy sites and manually altered browser launches are outside its scope. The companion handles existing tabs in regular browser windows; it does not inspect existing Incognito/Guest tabs. Chrome's managed URL policy handles new navigations there, but close any existing private windows before relying on a School transition. No DNS, VPN, Wi-Fi or captive-portal settings are changed.
+
+The browser companion and rules are local. No browsing history, visited URLs, accounts or passwords are sent to a server. Conflicting administrator browser policies are reported in settings rather than silently replaced. See [website integration details and troubleshooting](docs/websites.md).
+
 ## Update
 
 This release requires updating **both the plugin and its installed service**, including laptops with shared service 4.0.0 from a game. Run in the child's desktop terminal:
@@ -81,7 +99,7 @@ sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --us
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
-Save your work and reboot once after this update. The running shell can retain old QML components across plugin reloads. A reboot also avoids the launcher issue reported with restarting only the shell. The plugin is version **2.0.0**, with shared service **4.1.0**.
+Save your work and reboot once after this update. The running shell can retain old QML components across plugin reloads. A reboot also avoids the launcher issue reported with restarting only the shell. The plugin is version **2.1.0**, with shared service **4.2.0**. Website restrictions remain off until a parent enables them in the new Websites tab.
 
 Existing parent passwords, school app approvals, schedules, desktop recovery information, game progress and Pawberry daily counts are retained. An old unlimited Free Time override returns to School Mode on migration; a parent must start the first timed allowance. The service still includes the current practice-only game endpoints and cannot restore time rewards. For this shared service upgrade, use this repository's setup; an older game's service payload cannot downgrade it.
 
@@ -109,7 +127,7 @@ If an Omarchy update or authentication setup replaces PAM rules, rerun School Mo
 
 ### Service paths and dependencies
 
-The service uses Python 3's standard library, Linux PAM, systemd/logind and Omarchy's native shell/lock/notification commands. Desktop effects use Bash 5, Hyprland's Lua IPC, jq and flock, supplied by Omarchy. No pip packages, network services or API keys are needed.
+The service uses Python 3's standard library, Linux PAM, systemd/logind, OpenSSL and Omarchy's native shell/lock/notification commands. Desktop effects use Bash 5, Hyprland's Lua IPC, jq and flock, supplied by Omarchy. No pip packages, hosted services or API keys are needed. The optional website companion installs from a loopback-only endpoint on the laptop; it requires Chrome or Chromium.
 
 - Code: `/usr/lib/omarchy-kids-controls/`
 - Administration: `/usr/bin/omarchy-kids-controls`
@@ -127,7 +145,7 @@ First restore the desktop in each enrolled user's active session, without sudo:
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" disable
 ```
 
-Remove the School service module before removing the shell plugin. This restores its original PAM entry points and removes its PAM backups/receipt:
+Remove the School service module before removing the shell plugin. This restores its original PAM entry points and removes its PAM backups/receipt, owned browser policies and native-messaging manifests. The browser removes its managed companion; its managed-policy removal handler also clears persistent request rules:
 
 ```bash
 sudo omarchy-kids-controls remove school
@@ -145,9 +163,10 @@ MIT. See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md) for retained co
 ```bash
 omarchy plugin validate .
 python3 -m unittest discover -s tests -v
+node --test tests/websites.test.cjs
 python3 tests/visual.py --omarchy "$OMARCHY_PATH" --output /tmp/school-mode-visual-check
 ```
 
-Local tests require PySide6, Bash and jq. They exercise policy deadlines, schedule/reboot ordering, parent authentication, helper UID handling, temporary PAM installation/removal, service upgrades, game progress, launcher filtering, status permissions and desktop recovery. The visual check uses the real plugin QML and Omarchy controls with portable window and process adapters; inspect its screenshots. No test runs a real lock, systemd installation, GitHub Actions or an ISO.
+Local tests require PySide6, Bash, jq, OpenSSL and Node.js. They exercise policy deadlines, schedule/reboot ordering, parent authentication, helper UID handling, temporary PAM/browser installation and removal, signed packages, native messaging, service upgrades, game progress, launcher filtering, status permissions and desktop recovery. The visual check uses the real plugin QML and Omarchy controls with portable window and process adapters; inspect its screenshots. No test runs a real lock, systemd installation, GitHub Actions or an ISO. An optional isolated Chromium check is described in [docs/websites.md](docs/websites.md).
 
 The Linux PAM integration still needs a manual check on an Omarchy laptop: set a one-minute allowance, verify a child can unlock a manual lock before expiry, let the allowance expire, confirm the child password/fingerprint are refused, then enter the controls parent password and confirm School Mode resumes. Repeat with expiry while already locked and after suspend/reboot. Restore the preferred allowance afterward.

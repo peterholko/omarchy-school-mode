@@ -1,0 +1,12 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; background: #fcf6f1; color: #3d3453; }
+body { min-height: 100vh; margin: 0; display: grid; place-items: center; }
+main { max-width: 32rem; margin: 2rem; text-align: center; }
+.symbol { color: #8d72ba; font-size: 4rem; }
+.eyebrow { font-size: .8rem; letter-spacing: .15em; font-weight: 650; color: #755b96; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 700; }
+p { line-height: 1.7; }
+#domain { font-weight: 650; overflow-wrap: anywhere; }
+button { background: #705294; color: white; border: 0; padding: .85rem 1.2rem; border-radius: .75rem; font: inherit; cursor: pointer; }
+button:focus-visible { outline: 3px solid #b593d2; outline-offset: 4px; }
+.hint { font-size: .85rem; color: #796b89; }
+@media (prefers-color-scheme: dark) { :root { background: #231e2d; color: #eee7f5; } .hint, .eyebrow { color: #c3afd8; } }

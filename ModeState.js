@@ -25,7 +25,8 @@ function parseStatus(rawText) {
     updatedAt: Number.isFinite(parsed.updatedAt) ? parsed.updatedAt : 0,
     freeTimeMinutes: Number.isInteger(parsed.freeTimeMinutes) ? parsed.freeTimeMinutes : 30,
     freeTimeRemainingSeconds: Number.isFinite(parsed.freeTimeRemainingSeconds) ? Math.max(0, parsed.freeTimeRemainingSeconds) : 0,
-    freeTimeExpired: parsed.freeTimeExpired === true
+    freeTimeExpired: parsed.freeTimeExpired === true,
+    websites: parsed.websites && typeof parsed.websites === "object" ? parsed.websites : ({})
   }
 }
 

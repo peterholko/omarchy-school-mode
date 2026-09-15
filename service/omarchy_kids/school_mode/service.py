@@ -4,6 +4,8 @@ import os
 import pwd
 from . import config, pam_setup
 from .policy import Policy
+from .domains import normalize_domains, MAX_DOMAINS
+from .websites import Websites
 from omarchy_kids.core import session
 from omarchy_kids.core.storage import read_json, write_json, school_config_path, public_status
 
@@ -16,6 +18,7 @@ class Service:
         self.policies = {}
         self.sessions = {}
         self.last_lock = {}
+        self.websites = Websites(self)
 
     def managed_uids(self):
         result = []
@@ -57,7 +60,8 @@ class Service:
             return {"ok": False, "error": "not_managed", "enabled": False, "schemaVersion": 1}
         return {"ok": True, "enabled": True, "schemaVersion": 1,
                 **self.snapshot(uid, now), "blocked_periods": policy.profile["blocked_periods"],
-                "free_time_timer_version": 1, "free_time_ready": pam_setup.ready()}
+                "free_time_timer_version": 1, "free_time_ready": pam_setup.ready(),
+                "websites": self.websites.status(uid)}
 
     def publish(self, uid, now):
         data = self.status(uid, now)
@@ -69,12 +73,19 @@ class Service:
                   "freeTimeTimerVersion": 1, "freeTimeReady": data.get("free_time_ready", False),
                   "freeTimeMinutes": data.get("free_time_minutes", 30),
                   "freeTimeRemainingSeconds": data.get("free_time_remaining_seconds", 0),
-                  "freeTimeExpired": data.get("free_time_expired", False)}
+                  "freeTimeExpired": data.get("free_time_expired", False),
+                  "websites": data.get("websites", {})}
         public_status(self.host.layout, session.username_for(uid), "school-mode", public)
 
     def dispatch(self, peer, message):
         uid = self.host.resolve_uid(peer, message)
         command = message.get("cmd")
+        if command in ("websites.status", "websites.ack"):
+            with self.host.lock:
+                self.websites.reconcile(self.host.clock.now())
+                if command == "websites.ack":
+                    return self.websites.acknowledge(peer, message)
+                return self.websites.wire_status()
         if command == "users":
             if peer != 0:
                 return {"ok": False, "error": "not_allowed"}
@@ -105,6 +116,7 @@ class Service:
                     self.policies.pop(target, None)
                     self.override_path(target).unlink(missing_ok=True)
                 write_json(self.path, self.config)
+                self.websites.reconcile(self.host.clock.now())
                 self.publish(target, self.host.clock.now())
             return {"ok": True, "users": sorted(self.config["users"])}
         with self.host.lock:
@@ -153,14 +165,32 @@ class Service:
                 return {"ok": True, "config": copy.deepcopy(self.config)}
             if command == "config.patch":
                 patch = message.get("patch")
+                if isinstance(patch, dict) and "school_blocked_domains" in patch:
+                    try:
+                        patch = {**patch, "school_blocked_domains": normalize_domains(patch["school_blocked_domains"])}
+                    except ValueError as error:
+                        return {"ok": False, "error": "bad_domains", "message": str(error)}
                 if not config.valid_patch(patch):
                     return {"ok": False, "error": "bad_patch"}
                 key = self.config["users"][session.username_for(uid)]["profile"]
+                updated = config.sanitize_profile({**self.config["profiles"][key], **patch})
+                if updated["websites_enabled"] and set(patch) & {"websites_enabled", "school_blocked_domains"}:
+                    try:
+                        configured = set(updated["school_blocked_domains"])
+                        enrolled = {user["profile"] for user in self.config["users"].values()}
+                        for name, profile in self.config["profiles"].items():
+                            if name in enrolled and name != key and profile["websites_enabled"]:
+                                configured.update(profile["school_blocked_domains"])
+                        if len(configured) > MAX_DOMAINS:
+                            raise ValueError("Use at most 100 different blocked domains across this laptop's profiles.")
+                        self.websites.preflight()
+                    except ValueError as error:
+                        return {"ok": False, "error": "websites_setup", "message": str(error)}
                 now = self.host.clock.now()
                 # Settle the existing deadline before applying a changed schedule.
                 for target in self.managed_uids():
                     self.snapshot(target, now)
-                self.config["profiles"][key] = config.sanitize_profile({**self.config["profiles"][key], **patch})
+                self.config["profiles"][key] = updated
                 for target in self.managed_uids():
                     policy = self.policy_for(target)
                     if "blocked_periods" in patch:
@@ -172,6 +202,7 @@ class Service:
         return {"ok": False, "error": "unknown_command"}
 
     def tick(self, now, elapsed):
+        self.websites.reconcile(now)
         for uid in self.managed_uids():
             data = self.snapshot(uid, now)
             self.publish(uid, now)

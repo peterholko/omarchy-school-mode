@@ -31,6 +31,8 @@ elif role == 'typing':
         return game_main('typing')
 elif role == 'school-pam':
     from omarchy_kids.school_mode.pam_helper import main
+elif role == 'school-websites':
+    from omarchy_kids.school_mode.websites_native import main
 elif role in {'school', 'time'}:
     from omarchy_kids.core import cli
     cli.SCOPE = role

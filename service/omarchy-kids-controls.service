@@ -17,6 +17,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
 ReadWritePaths=/etc/omarchy-kids-controls /var/lib/omarchy-kids-controls /run/omarchy-kids-controls
+ReadWritePaths=-/etc/chromium/policies/managed -/etc/opt/chrome/policies/managed
 
 [Install]
 WantedBy=multi-user.target

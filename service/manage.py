@@ -68,6 +68,7 @@ def wrappers():
         result[Path('/usr/bin') / name] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/runtime.py {role} "$@"\n'
     result[Path('/usr/bin/omarchy-kids-controls')] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/manage.py "$@"\n'
     result[Path('/usr/bin/omarchy-kids-controls-school-pam')] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/runtime.py school-pam "$@"\n'
+    result[Path('/usr/bin/omarchy-kids-controls-school-websites')] = f'#!/bin/bash\nexec /usr/bin/python3 -I {PREFIX}/runtime.py school-websites "$@"\n'
     return result
 
 
@@ -184,9 +185,10 @@ def install(args):
     ensure_directory(CONFIG, 0o700)
     ensure_directory(STATE, 0o755)
     previous = installed()
-    from omarchy_kids.school_mode import pam_setup
+    from omarchy_kids.school_mode import pam_setup, websites_setup
     selected_school = args.module in ('school', 'controls')
     pam_plan = pam_setup.plan() if selected_school else None
+    website_plan = websites_setup.plan() if selected_school or 'school' in previous.get('modules', []) else None
     incoming = payload_files(SOURCE)
     owned = previous.get('payload', {})
     if PREFIX.exists() or PREFIX.is_symlink():
@@ -201,7 +203,7 @@ def install(args):
             raise ValueError(f'command collision at {path}')
         if path.exists():
             verify_owned(path)
-    if (UNIT.exists() or UNIT.is_symlink()) and (not previous or UNIT.is_symlink() or UNIT.read_text() != previous.get('unit')):
+    if (UNIT.exists() or UNIT.is_symlink()) and (not previous or UNIT.is_symlink() or UNIT.read_text() not in (previous.get('unit'), previous.get('previous_unit'))):
         raise ValueError(f'service collision at {UNIT}')
     if UNIT.exists():
         verify_owned(UNIT)
@@ -247,13 +249,24 @@ def install(args):
     # can safely be retried without adopting unrelated files.
     unit = (SOURCE / UNIT.name).read_text()
     modules, selected = selected_modules(previous, args.module)
-    write_json(MARKER, {'identity': IDENTITY, 'version': VERSION, 'payload': incoming, 'unit': unit, 'modules': modules})
+    marker = {'identity': IDENTITY, 'version': VERSION, 'payload': incoming, 'unit': unit, 'modules': modules}
+    # Browser package preparation can fail (for example an interrupted key
+    # write). Retain the already-verified old unit until the new one is written
+    # so rerunning this setup can resume without adopting an unrelated unit.
+    if UNIT.exists() and UNIT.read_text() != unit:
+        marker['previous_unit'] = UNIT.read_text()
+    write_json(MARKER, marker)
     for path, text in wrappers().items():
         write_wrapper(path, text)
     if pam_plan is not None:
         pam_setup.install(pam_plan)
+    if website_plan is not None:
+        websites_setup.install(website_plan)
     paths.write_private(UNIT, unit)
     UNIT.chmod(0o644)
+    if 'previous_unit' in marker:
+        del marker['previous_unit']
+        write_json(MARKER, marker)
     run('systemctl', 'daemon-reload')
     run('systemctl', 'enable', '--now', UNIT.name)
     # Adding a module to an unchanged payload must reload the module roster.
@@ -291,8 +304,9 @@ def remove(module):
         if module == 'school':
             restore_desktop(user)
     if module == 'school':
-        from omarchy_kids.school_mode import pam_setup
+        from omarchy_kids.school_mode import pam_setup, websites_setup
         pam_setup.remove()
+        websites_setup.remove()
     marker['modules'].remove(module)
     if marker['modules']:
         write_json(MARKER, marker)

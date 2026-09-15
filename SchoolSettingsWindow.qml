@@ -62,6 +62,8 @@ Item {
     root.localPeriods = Schedule.schoolPeriods(profile ? profile.blocked_periods : (root.service ? root.service.blockedPeriods : []))
     root.localApps = Allowlist.normalizeIds(profile ? profile.school_apps : (root.service ? root.service.allowedDesktopIds : []))
     root.localFreeTimeMinutes = profile && Number.isInteger(profile.free_time_minutes) ? profile.free_time_minutes : 30
+    websitesPage.filteringEnabled = profile && profile.websites_enabled === true
+    websitesPage.domainText = profile && Array.isArray(profile.school_blocked_domains) ? profile.school_blocked_domains.join("\n") : ""
     root.settingsPage = "school"
     win.visible = true
   }
@@ -187,6 +189,8 @@ Item {
         root.note = "Too many tries. Close this window and unlock it again later."
       else if (payload && payload.error === "bad_password")
         root.note = "The parent password is no longer accepted. Close this window and unlock it again."
+      else if (payload && (payload.error === "bad_domains" || payload.error === "websites_setup"))
+        root.note = String(payload.message || "Check website settings and setup.")
       else
         root.note = "Could not save settings. Try again."
     }
@@ -235,15 +239,21 @@ Item {
         spacing: Style.space(8)
         Button {
           objectName: "schoolModeTab"
-          width: (pageTabs.width - pageTabs.spacing) / 2
+          width: (pageTabs.width - pageTabs.spacing * 2) / 3
           text: "School Mode"; selected: root.settingsPage === "school"; bordered: true; focusable: true
           onClicked: root.settingsPage = "school"
         }
         Button {
           objectName: "freeTimeTab"
-          width: (pageTabs.width - pageTabs.spacing) / 2
+          width: (pageTabs.width - pageTabs.spacing * 2) / 3
           text: "Free Time"; selected: root.settingsPage === "free"; bordered: true; focusable: true
           onClicked: root.settingsPage = "free"
+        }
+        Button {
+          objectName: "websitesTab"
+          width: (pageTabs.width - pageTabs.spacing * 2) / 3
+          text: "Websites"; selected: root.settingsPage === "websites"; bordered: true; focusable: true
+          onClicked: root.settingsPage = "websites"
         }
       }
 
@@ -490,6 +500,16 @@ Item {
             }
           }
 
+          WebsiteSettingsPage {
+            id: websitesPage
+            objectName: "websitesSettingsPage"
+            width: content.width
+            visible: root.settingsPage === "websites"
+            saving: root.password === "" || patchProc.running
+            status: root.service && root.service.websitesStatus ? root.service.websitesStatus : ({})
+            onSaveRequested: function(settings) { root.patch(settings) }
+          }
+
           PanelSeparator { width: parent.width }
 
           Row {
@@ -497,12 +517,12 @@ Item {
 
             Text {
               textFormat: Text.PlainText
-              text: root.note !== "" ? root.note : (root.settingsPage === "free" ? "Applies to the next allowance." : "Changes apply immediately.")
+              text: root.note !== "" ? root.note : (root.settingsPage === "free" ? "Applies to the next allowance." : (root.settingsPage === "websites" ? "Save to apply website changes." : "Changes apply immediately."))
               color: root.note !== "" ? root.noteColor : root.fadeText(0.5)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              width: parent.width - closeButton.width
-              elide: Text.ElideRight
+              width: parent.width - closeButton.width - Style.space(10)
+              wrapMode: Text.WordWrap
               anchors.verticalCenter: parent.verticalCenter
             }
 
