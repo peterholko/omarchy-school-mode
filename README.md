@@ -97,10 +97,10 @@ If the installed shared service is already **4.2.0**, update the launcher from t
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes
-omarchy-shell shell rescanPlugins
+omarchy-restart-shell
 ```
 
-Allow a few seconds for the plugins to reload, then reopen the app launcher. This launcher patch does not require service setup or a reboot.
+Wait for the bar to return, then reopen the app launcher. A plugin rescan alone can leave the previous menu code running; a shell restart was required to activate this patch on the affected laptop. This launcher patch does not require service setup or a reboot.
 
 When upgrading from an older shared service, including 4.0.0 from a game, update **both the plugin and its installed service**:
 
@@ -125,6 +125,8 @@ omarchy-shell shell call io.github.peterholko.school-mode diagnostics "" | pytho
 ```
 
 This reads the running launcher's service connection, a fresh host lookup, and installed/approved/displayed app counts. It does not open an app or change settings. A working current host should report `serviceSource: "injected"` and a connected, enabled service. A healthy root service status file alone does not prove the launcher has that connection. Preserve this output before restarting; it distinguishes a missing connection from an empty app provider. Launcher opens with missing status also write this diagnostic to the `omarchy-shell` journal.
+
+If the formatter reports `Expecting value`, run the diagnostic without `| python3 -m json.tool` to see the raw response. `unknown` means the menu instance or diagnostic method is unavailable. If the plugin checkout is current, restart the shell with `omarchy-restart-shell`, reopen the launcher and try the diagnostic again.
 
 ## Native authentication and recovery
 
