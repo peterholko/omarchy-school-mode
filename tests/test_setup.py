@@ -1,5 +1,6 @@
 """Exercise file installation and upgrades in a temporary tree, with systemctl mocked."""
 from contextlib import ExitStack
+from functools import partial
 import importlib.util
 import json
 import os
@@ -48,11 +49,26 @@ class Setup(unittest.TestCase):
         website_plan, website_install = websites_setup.plan, websites_setup.install
         self.context.enter_context(patch.object(websites_setup, 'plan', lambda: website_plan(m.CONFIG, m.STATE, website_etc)))
         self.context.enter_context(patch.object(websites_setup, 'install', lambda previous: website_install(previous, m.CONFIG, m.STATE, website_etc)))
+        from omarchy_kids.school_mode import lock_notice_setup
+        from test_lock_notice import VIEW
+        self.omarchy = self.root / 'omarchy'
+        self.lock_view = self.omarchy / lock_notice_setup.RELATIVE_VIEW
+        self.lock_view.parent.mkdir(parents=True)
+        self.lock_view.write_text(VIEW)
+        shell_config = self.omarchy / 'config/omarchy/shell.json'
+        shell_config.parent.mkdir(parents=True)
+        shell_config.write_text('{}')
+        notice_receipt = m.CONFIG / 'school-lock-notice.json'
+        notice_plan, notice_install, notice_remove = lock_notice_setup.plan, lock_notice_setup.install, lock_notice_setup.remove
+        self.context.enter_context(patch.object(lock_notice_setup, 'read_owned', partial(lock_notice_setup.read_owned, trusted_root=self.root)))
+        self.context.enter_context(patch.object(lock_notice_setup, 'plan', lambda path: notice_plan(path, notice_receipt, os.getuid(), m.PREFIX / 'lock-notice/LockNotice.qml')))
+        self.context.enter_context(patch.object(lock_notice_setup, 'install', lambda prepared: notice_install(prepared, notice_receipt, os.getuid())))
+        self.context.enter_context(patch.object(lock_notice_setup, 'remove', lambda: notice_remove(notice_receipt, os.getuid())))
         original_is_file=Path.is_file
         self.context.enter_context(patch.object(Path,'is_file',lambda path:True if str(path)=='/usr/share/omarchy/config/omarchy/shell.json' else original_is_file(path)))
 
     def install(self,module,upgrade=True):
-        self.manage.install(SimpleNamespace(user='linnea',module=module,upgrade=upgrade))
+        self.manage.install(SimpleNamespace(user='linnea',module=module,upgrade=upgrade,omarchy_path=self.omarchy))
 
     def test_fresh_install_adds_games_without_enrolling_clocks_or_replacing_parent_data(self):
         m=self.manage
@@ -60,6 +76,7 @@ class Setup(unittest.TestCase):
         self.assertFalse(m.PASSWORD_PATH.exists(),'Grove needs no separate controls password')
         self.assertEqual(m.installed()['modules'],['grove'])
         self.assertEqual(self.enrollments,[('grove','linnea',True)])
+        self.assertNotIn('schoolModeLockNotice', self.lock_view.read_text())
         self.assertFalse(json.loads((m.CONFIG/'screen-time.json').read_text())['users'])
         password='{"keep":"password hash"}\n';quota='{"users":{"linnea":{"add":5,"multiply":7}}}\n'
         m.PASSWORD_PATH.write_text(password);(m.CONFIG/'pawberry.json').write_text(quota)
@@ -104,7 +121,7 @@ class Setup(unittest.TestCase):
             self.install('pawberry')
             remove.assert_called_once_with()
         self.assertFalse(obsolete.exists())
-        self.assertEqual(m.installed()['version'], '4.2.0')
+        self.assertEqual(m.installed()['version'], '4.3.0')
         self.assertEqual(m.installed()['modules'], ['pawberry', 'school'])
         self.assertEqual((m.CONFIG/'school-mode.json').read_text(), school)
         self.assertNotIn('/var/lib/peterholko-screen-time', m.UNIT.read_text())
@@ -125,6 +142,22 @@ class Setup(unittest.TestCase):
         self.assertEqual(counts.read_text(),'{"multiply":7}')
         self.assertTrue((self.root/'bin/omarchy-kids-controls-school-pam').is_file())
         self.assertTrue((m.CONFIG/'school-pam.json').is_file())
+        self.assertTrue((m.PREFIX/'lock-notice/LockNotice.qml').is_file())
+        self.assertIn('schoolModeLockNotice', self.lock_view.read_text())
+
+    def test_removing_school_restores_lock_view_and_keeps_the_game_module(self):
+        from test_lock_notice import VIEW
+        m = self.manage
+        m.PASSWORD_PATH.write_text('{"hash":"existing controls password"}')
+        self.install('grove')
+        self.install('school')
+        from omarchy_kids.school_mode import pam_setup, websites_setup
+        with patch.object(pam_setup, 'remove'), patch.object(websites_setup, 'remove'):
+            m.remove('school')
+        self.assertEqual(self.lock_view.read_text(), VIEW)
+        self.assertFalse((m.CONFIG/'school-lock-notice.json').exists())
+        self.assertEqual(m.installed()['modules'], ['grove'])
+        self.assertTrue(m.PREFIX.exists())
 
     def test_browser_preparation_failure_can_resume_with_the_verified_previous_unit(self):
         from omarchy_kids.school_mode import websites_setup

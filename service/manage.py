@@ -180,13 +180,15 @@ def replace_screen_time(user):
 
 def install(args):
     check_account(args.user)
-    if not Path('/usr/share/omarchy/config/omarchy/shell.json').is_file():
-        raise ValueError('install on Omarchy Quattro with its packaged shell')
     ensure_directory(CONFIG, 0o700)
     ensure_directory(STATE, 0o755)
     previous = installed()
-    from omarchy_kids.school_mode import pam_setup, websites_setup
+    from omarchy_kids.school_mode import lock_notice_setup, pam_setup, websites_setup
     selected_school = args.module in ('school', 'controls')
+    notice_plan = lock_notice_setup.plan(args.omarchy_path) if selected_school else None
+    omarchy_path = Path(notice_plan['target']).parents[3] if notice_plan else Path('/usr/share/omarchy')
+    if not (omarchy_path / 'config/omarchy/shell.json').is_file():
+        raise ValueError('install on Omarchy Quattro with its packaged shell')
     pam_plan = pam_setup.plan() if selected_school else None
     website_plan = websites_setup.plan() if selected_school or 'school' in previous.get('modules', []) else None
     incoming = payload_files(SOURCE)
@@ -262,6 +264,8 @@ def install(args):
         pam_setup.install(pam_plan)
     if website_plan is not None:
         websites_setup.install(website_plan)
+    if notice_plan is not None:
+        lock_notice_setup.install(notice_plan)
     paths.write_private(UNIT, unit)
     UNIT.chmod(0o644)
     if 'previous_unit' in marker:
@@ -283,6 +287,7 @@ def install(args):
     print(f'{args.module} service installed for {args.user}. Existing settings were retained.')
     if selected_school:
         print('Free Time starts with parent approval. Its expiry needs the controls parent password and returns to School Mode.')
+        print('Run omarchy-restart-shell from the unlocked desktop to load the parent-password lock notice.')
         print('The previous Screen Time enrollment was disabled for this account; settings and history were retained.')
 
 
@@ -304,7 +309,8 @@ def remove(module):
         if module == 'school':
             restore_desktop(user)
     if module == 'school':
-        from omarchy_kids.school_mode import pam_setup, websites_setup
+        from omarchy_kids.school_mode import lock_notice_setup, pam_setup, websites_setup
+        lock_notice_setup.remove()
         pam_setup.remove()
         websites_setup.remove()
     marker['modules'].remove(module)
@@ -337,6 +343,7 @@ def main():
     installer.add_argument('--module', choices=['controls', 'time', 'school', 'pawberry', 'grove', 'typing'], required=True)
     installer.add_argument('--user', required=True)
     installer.add_argument('--upgrade', action='store_true')
+    installer.add_argument('--omarchy-path', help='Omarchy installation path, required for first School setup when sudo removes OMARCHY_PATH')
     for action in ('enable', 'disable'):
         command = sub.add_parser(action)
         command.add_argument('module', choices=['controls', 'time', 'school', 'pawberry', 'grove', 'typing'])

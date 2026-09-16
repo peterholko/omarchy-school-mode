@@ -10,6 +10,7 @@ A community plugin for **Omarchy Quattro with the Quickshell plugin system**. It
 - In settings, **School Mode** contains the approved school apps and school hours. **Free Time** sets the minutes per allowance, from 1 to 1440. Changes apply to the next allowance.
 - Locking the screen manually before expiry keeps normal password/fingerprint authentication. The countdown continues while locked, asleep or powered off; restarting does not grant more time.
 - At expiry, the service locks the screen. If it is already locked, authentication becomes parent-only. The child password, fingerprint and automatic login cannot clear an expired allowance.
+- The native Omarchy lock screen then shows **Parent password required** and **Free Time has ended. Ask a parent to unlock and return to School Mode.** The notice updates even when time runs out while already locked. It stays hidden on ordinary locks before expiry and in School Mode.
 - Enter the **controls parent password** in the usual lock-screen password field. A successful expiry unlock ends Free Time and returns to School Mode. It does not grant another allowance.
 - Entering School Mode before expiry cancels the timer. School Mode never initiates a timer lock. A scheduled school period that starts before expiry also cancels the allowance; ending school hours never grants Free Time automatically.
 
@@ -22,12 +23,13 @@ Run from the intended user's Omarchy desktop terminal. Replace `CHILD_USERNAME` 
 ```bash
 omarchy pkg add python
 omarchy plugin add https://github.com/peterholko/omarchy-school-mode --enable
-sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME --upgrade
+sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME --upgrade --omarchy-path "$OMARCHY_PATH"
 omarchy bar put io.github.peterholko.school-mode --section right
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
+omarchy-restart-shell
 ```
 
-Setup installs this checkout's reviewed local service payload and the native lock authentication rules. Downloading the shell plugin alone cannot enable the timer. Setup asks for a new **controls parent password** of at least eight characters if needed, and preserves an existing controls password. This password is separate from the child's login, sudo, disk password and the former Screen Time plugin's password or PIN.
+Setup installs this checkout's reviewed local service payload, the native lock authentication rules and the parent-password lock notice. Downloading the shell plugin alone cannot enable these integrations. Setup asks for a new **controls parent password** of at least eight characters if needed, and preserves an existing controls password. This password is separate from the child's login, sudo, disk password and the former Screen Time plugin's password or PIN.
 
 Only the named account is enrolled. Root owns the password hash, schedules, deadline and expiry state. Passwords travel through stdin and a local Unix socket, never command arguments. The service authenticates callers using socket peer credentials and rate-limits failed parent-password attempts. PAM requests drop root privileges to the target child's UID before asking the service to check a typed password.
 
@@ -91,30 +93,27 @@ The browser companion and rules are local. No browsing history, visited URLs, ac
 
 ## Update
 
-Version **2.1.1** fixes a launcher that stays on “Free Time…” and “Style” when its School Mode service lookup is unavailable, even while the bar countdown works. The launcher accepts Omarchy's directly injected service and retries a missing lookup. App approvals remain enforced while status loads.
-
-If the installed shared service is already **4.2.0**, update the launcher from the child's desktop terminal, without sudo:
+Version **2.2.0**, with shared service **4.3.0**, adds the parent-password notice to Omarchy's native lock screen. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes
+sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME --upgrade --omarchy-path "$OMARCHY_PATH"
 omarchy-restart-shell
 ```
 
-Wait for the bar to return, then reopen the app launcher. A plugin rescan alone can leave the previous menu code running; a shell restart was required to activate this patch on the affected laptop. This launcher patch does not require service setup or a reboot.
-
-When upgrading from an older shared service, including 4.0.0 from a game, update **both the plugin and its installed service**:
-
-```bash
-omarchy plugin update io.github.peterholko.school-mode --yes
-sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --user CHILD_USERNAME --upgrade
-python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
-```
-
-Save your work and reboot once after upgrading the installed service. The plugin is version **2.1.1**, with shared service **4.2.0**. Website restrictions remain off until a parent enables them in the new Websites tab.
+Wait for the bar to return, then reopen the app launcher. A plugin rescan alone can leave previous QML running. Upgrading from service 4.2.0 needs setup and a shell restart, but no reboot. When upgrading from a release without the Free Time timer, also enable the approved desktop as described above, then save your work and reboot once to activate the authentication changes. Website restrictions remain off until a parent enables them in the Websites tab.
 
 Existing parent passwords, school app approvals, schedules, desktop recovery information, game progress and Pawberry daily counts are retained. An old unlimited Free Time override returns to School Mode on migration; a parent must start the first timed allowance. The service still includes the current practice-only game endpoints and cannot restore time rewards. For this shared service upgrade, use this repository's setup; an older game's service payload cannot downgrade it.
 
 The launcher compatibility, approved Free Time apps, standalone Math Time entry, startup recovery and readable status publication fixes from earlier releases are included.
+
+### Lock-screen notice
+
+The notice reads only the enrolled user's public expiry status. It does not read passwords, change the password field, authenticate anyone or initiate a lock. The existing PAM rules continue to enforce parent-only unlock after expiry. The message is for the native Omarchy lock screen; separate SDDM or Hyprlock interfaces retain their own appearance.
+
+Omarchy currently has no plugin API for lock-screen messages, so setup adds a small, marked loader to `$OMARCHY_PATH/shell/plugins/lock/LockView.qml`. The installed Omarchy tree must be root-owned and not writable by other users. The display component is root-owned under `/usr/lib/omarchy-kids-controls/lock-notice/`; a private receipt records only the exact inserted block. Setup and removal preserve the rest of Omarchy's file and stop if that block was edited.
+
+An Omarchy package update can replace the lock view and remove the notice. Rerun the setup command above and `omarchy-restart-shell` to reapply it to the current supported view. This never restores an older copy of Omarchy's lock screen. Passing `--omarchy-path "$OMARCHY_PATH"` preserves the selected installation path even when sudo clears the environment.
 
 ### Diagnose an empty launcher
 
@@ -155,6 +154,7 @@ The service uses Python 3's standard library, Linux PAM, systemd/logind, OpenSSL
 - Code: `/usr/lib/omarchy-kids-controls/`
 - Administration: `/usr/bin/omarchy-kids-controls`
 - PAM helper: `/usr/bin/omarchy-kids-controls-school-pam`
+- Lock notice receipt: `/etc/omarchy-kids-controls/school-lock-notice.json`
 - Unit: `/etc/systemd/system/omarchy-kids-controls.service`
 - Private configuration and password: `/etc/omarchy-kids-controls/`
 - Private state and per-user read-only status: `/var/lib/omarchy-kids-controls/`
@@ -168,11 +168,12 @@ First restore the desktop in each enrolled user's active session, without sudo:
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" disable
 ```
 
-Remove the School service module before removing the shell plugin. This restores its original PAM entry points and removes its PAM backups/receipt, owned browser policies and native-messaging manifests. The browser removes its managed companion; its managed-policy removal handler also clears persistent request rules:
+Remove the School service module before removing the shell plugin. This restores its original PAM entry points, removes the owned lock-screen loader and removes its PAM backups/receipt, owned browser policies and native-messaging manifests. The browser removes its managed companion; its managed-policy removal handler also clears persistent request rules:
 
 ```bash
 sudo omarchy-kids-controls remove school
 omarchy plugin remove io.github.peterholko.school-mode
+omarchy-restart-shell
 ```
 
 If another module is installed, its shared service and settings remain. Removing the last module removes the service, unit and owned commands. Configuration, passwords and history are retained for a deliberate reinstall. Locally modified installed files stop automatic removal for review.
@@ -188,8 +189,9 @@ omarchy plugin validate .
 python3 -m unittest discover -s tests -v
 node --test tests/websites.test.cjs
 python3 tests/visual.py --omarchy "$OMARCHY_PATH" --output /tmp/school-mode-visual-check
+python3 tests/visual-lock.py --omarchy "$OMARCHY_PATH" --output /tmp/school-lock-visual-check
 ```
 
 Local tests require PySide6, Bash, jq, OpenSSL and Node.js. They exercise policy deadlines, schedule/reboot ordering, parent authentication, helper UID handling, temporary PAM/browser installation and removal, signed packages, native messaging, service upgrades, game progress, launcher filtering, status permissions and desktop recovery. The visual check uses the real plugin QML and Omarchy controls with portable window and process adapters; inspect its screenshots. No test runs a real lock, systemd installation, GitHub Actions or an ISO. An optional isolated Chromium check is described in [docs/websites.md](docs/websites.md).
 
-The Linux PAM integration still needs a manual check on an Omarchy laptop: set a one-minute allowance, verify a child can unlock a manual lock before expiry, let the allowance expire, confirm the child password/fingerprint are refused, then enter the controls parent password and confirm School Mode resumes. Repeat with expiry while already locked and after suspend/reboot. Restore the preferred allowance afterward.
+The Linux PAM integration still needs a manual check on an Omarchy laptop: set a one-minute allowance, verify a child can unlock a manual lock before expiry, let the allowance expire, confirm the parent-password notice appears and the child password/fingerprint are refused, then enter the controls parent password and confirm School Mode resumes. Repeat with expiry while already locked and after suspend/reboot. Restore the preferred allowance afterward.
