@@ -75,18 +75,6 @@ sudo omarchy-kids-controls disable school --user CHILD_USERNAME
 sudo omarchy-kids-controls enable school --user CHILD_USERNAME
 ```
 
-## Replacing the old Screen Time plugin
-
-This release manages Free Time directly. School setup disables the named account's enrollment in both the previous shared time module and `peterholko.screen-time`, if present. Other accounts retain their enrollments; the old service's settings and history are retained. The former platform enrollment is also recorded privately under `/etc/omarchy-kids-controls/previous-screen-time-UID.json`.
-
-Remove the old Screen Time widget from this user's desktop if it is installed:
-
-```bash
-omarchy plugin disable peterholko.screen-time
-```
-
-Do not re-enroll this account in another timer alongside School / Free Time. Pawberry Pet Hotel, Number Grove, Paw Post and the separate Math Time app remain independent; playing them cannot grant or extend this allowance. The existing read-only School Mode status remains compatible with other clients.
-
 ## Websites
 
 Website restrictions start **off**, with an empty list. After running the updated setup:
