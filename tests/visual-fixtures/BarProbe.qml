@@ -4,7 +4,7 @@ import qs.Commons
 import "@PLUGIN_URL@" as School
 Window {
   id: root
-  visible: true; width: 440; height: 500; color: Color.background
+  visible: true; width: 388; height: 280; color: Color.background
   property QtObject modeService: QtObject {
     property bool schoolMode: false
     property bool schoolEnabled: true
@@ -34,5 +34,5 @@ Window {
   School.BarWidget { id: widget; objectName: "barWidget"; bar: root.bar; x: 20; y: 8 }
   School.Panel { id: panel; service: root.modeService; x: 24; y: 58 }
   function school() { modeService.schoolMode = true }
-  Component.onCompleted: { Style.fontFamily="Menlo"; panel.open() }
+  Component.onCompleted: { Style.fontFamily="Menlo"; Style.fontBaseSize=12; panel.open() }
 }

@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--omarchy', required=True, type=Path)
 parser.add_argument('--output', required=True, type=Path)
+parser.add_argument('--font', action='append', default=[], type=Path, help='Load a local font for this preview, such as JetBrainsMonoNLNerdFontMono-Regular.ttf')
+parser.add_argument('--font-family', default='Menlo', help='Text and icon font family for the preview')
 args = parser.parse_args()
 base = args.output.resolve()
 imports = base / 'qml'
@@ -40,10 +42,14 @@ for name in ['Style.qml', 'Border.qml', 'BorderGeometry.js', 'Util.qml']:
 with (imports/'Quickshell/Io/qmldir').open('a') as handle:
     handle.write('\nIpcHandler 1.0 IpcHandler.qml\n')
 for name in ('Probe.qml', 'BarProbe.qml'):
-    (base/name).write_text((ROOT/'tests/visual-fixtures'/name).read_text().replace('@PLUGIN_URL@', ROOT.as_uri()))
+    (base/name).write_text((ROOT/'tests/visual-fixtures'/name).read_text()
+        .replace('@PLUGIN_URL@', ROOT.as_uri()).replace('"Menlo"', json.dumps(args.font_family)))
 
 app = QGuiApplication.instance() or QGuiApplication([])
 QFontDatabase.addApplicationFont(str(args.omarchy/'default/fonts/omarchy/omarchy.ttf'))
+for font in args.font:
+    if QFontDatabase.addApplicationFont(str(font)) < 0:
+        parser.error(f'could not load preview font: {font}')
 engine = QQmlEngine()
 engine.addImportPath(str(imports))
 components = []

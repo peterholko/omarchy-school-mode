@@ -4,6 +4,20 @@ Approved apps, school schedules, optional School Mode website restrictions and a
 
 A community plugin for **Omarchy Quattro with the Quickshell plugin system**. It works on a regular Omarchy installation; an Omarchy Kids ISO or fork is not required. The plugin ID is `io.github.peterholko.school-mode`.
 
+## Screenshots
+
+Local previews of the actual interface, using sample settings and the Bubblegum palette. Open an image to see it at full size.
+
+| School Mode: learning games and school hours | Free Time: minutes per allowance |
+| --- | --- |
+| ![School Mode settings with optional learning games and a weekday school schedule](docs/screenshots/school-settings.png) | ![Free Time settings with a 30-minute allowance and an explanation of parent unlock](docs/screenshots/free-time-settings.png) |
+| **Websites: restrictions during School Mode** | **Free Time: live countdown** |
+| ![Website settings blocking youtube.com and roblox.com during School Mode](docs/screenshots/website-settings.png) | ![Free Time countdown showing 29 minutes 58 seconds remaining and a Return to School Mode button](docs/screenshots/free-time-countdown.png) |
+
+**After Free Time expires, the lock screen explains that a parent must unlock it.**
+
+![Omarchy lock screen showing Parent password required and explaining that unlocking returns to School Mode](docs/screenshots/parent-password-required.png)
+
 ## How the timer works
 
 - A parent chooses **Start Free Time** and enters the existing School Mode parent password. The bar and mode panel display the remaining time.
@@ -193,5 +207,7 @@ python3 tests/visual-lock.py --omarchy "$OMARCHY_PATH" --output /tmp/school-lock
 ```
 
 Local tests require PySide6, Bash, jq, OpenSSL and Node.js. They exercise policy deadlines, schedule/reboot ordering, parent authentication, helper UID handling, temporary PAM/browser installation and removal, signed packages, native messaging, service upgrades, game progress, launcher filtering, status permissions and desktop recovery. The visual check uses the real plugin QML and Omarchy controls with portable window and process adapters; inspect its screenshots. No test runs a real lock, systemd installation, GitHub Actions or an ISO. An optional isolated Chromium check is described in [docs/websites.md](docs/websites.md).
+
+For preview captures on a machine without Omarchy's fonts, `tests/visual.py` accepts `--font /path/to/JetBrainsMonoNLNerdFontMono-Regular.ttf --font-family "JetBrainsMonoNL Nerd Font Mono"`. The font is loaded only for that preview process. The README screenshots use these preview tools with the Bubblegum palette.
 
 The Linux PAM integration still needs a manual check on an Omarchy laptop: set a one-minute allowance, verify a child can unlock a manual lock before expiry, let the allowance expire, confirm the parent-password notice appears and the child password/fingerprint are refused, then enter the controls parent password and confirm School Mode resumes. Repeat with expiry while already locked and after suspend/reboot. Restore the preferred allowance afterward.
