@@ -20,13 +20,15 @@ APP = QGuiApplication.instance() or QGuiApplication([])
 
 
 class MenuTest(unittest.TestCase):
-    def load(self, expose_library):
+    def load(self, expose_library, *, inject_service=False, lookup_available=True):
         self.engine = QQmlEngine()
         self.engine.addImportPath(str(ROOT / "tests/qml"))
         self.component = QQmlComponent(self.engine, QUrl.fromLocalFile(str(ROOT / "tests/fixtures/Probe.qml")))
         self.assertEqual(self.component.status(), QQmlComponent.Ready, str(self.component.errors()))
         self.probe = self.component.createWithInitialProperties({
             "exposeLibrary": expose_library,
+            "injectService": inject_service,
+            "lookupStartsAvailable": lookup_available,
             "installedPath": str(ROOT / "tests/fixtures"),
             "pluginPath": str(ROOT),
         })
@@ -128,6 +130,37 @@ class MenuTest(unittest.TestCase):
         state = self.invoke("inspect")
         self.assertTrue(state["usesSharedLibrary"])
         self.assertEqual(state["ids"], ["chromium", "org.gnome.Nautilus", "Khan Academy"])
+
+    def test_injected_service_works_when_host_lookup_is_unavailable(self):
+        state = self.load(True, inject_service=True, lookup_available=False)
+        self.assertEqual(state["ids"], ["chromium", "org.gnome.Nautilus", "Khan Academy"])
+        diagnostic = self.invoke("diagnostics")
+        self.assertEqual(diagnostic["serviceSource"], "injected")
+        self.assertTrue(diagnostic["service"]["enabled"])
+        self.assertFalse(diagnostic["freshLookup"]["available"])
+        self.assertGreater(diagnostic["availableApps"], diagnostic["visibleApps"])
+        self.assertEqual(diagnostic["visibleApps"], 3)
+        self.assertNotIn("Discord", self.invoke("free")["ids"])
+        self.assertEqual(self.invoke("disconnect")["ids"], [])
+
+    def test_open_and_refresh_recover_a_service_published_without_notification(self):
+        for action in ("open", "refresh"):
+            with self.subTest(action=action):
+                self.assertEqual(self.load(True, lookup_available=False)["ids"], [])
+                self.assertEqual(self.invoke("publish-service")["ids"], [])
+                # Diagnostics expose the disagreement without fixing it.
+                diagnostic = self.invoke("diagnostics")
+                self.assertFalse(diagnostic["service"]["available"])
+                self.assertTrue(diagnostic["freshLookup"]["available"])
+                self.assertEqual(self.invoke(action)["ids"], ["chromium", "org.gnome.Nautilus", "Khan Academy"])
+
+    def test_missing_service_recovers_while_menu_stays_open(self):
+        self.assertEqual(self.load(True, lookup_available=False)["ids"], [])
+        self.invoke("publish-service")
+        QTest.qWait(1100)
+        self.assertEqual(self.invoke("inspect")["ids"], ["chromium", "org.gnome.Nautilus", "Khan Academy"])
+        self.invoke("revoke")
+        self.assertEqual(self.invoke("inspect")["ids"], ["Khan Academy"])
 
 
 if __name__ == "__main__":

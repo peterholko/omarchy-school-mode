@@ -14,6 +14,11 @@ Loader {
   property string omarchyPath: ""
   property var shell: null
   property var manifest: null
+  // Omarchy injects the matching service into menu entry points that expose
+  // this property. Use it directly so a cached shell lookup cannot strand the
+  // launcher while the bar is already receiving live School Mode status.
+  property var service: null
+  property int serviceLookupRevision: 0
   property string pendingPayload: ""
   property bool hasPendingPayload: false
   readonly property bool opened: item ? item.opened === true : false
@@ -21,9 +26,12 @@ Loader {
   readonly property var shellAppLibrary: root.shell && root.shell.appLibrary
     && typeof root.shell.appLibrary.sortedEntries === "function" ? root.shell.appLibrary : null
   readonly property var sourceAppLibrary: root.shellAppLibrary || localAppLibrary.item
-  readonly property var modeService: shell && typeof shell.serviceFor === "function"
-    ? shell.serviceFor("io.github.peterholko.school-mode")
-    : null
+  readonly property var lookedUpService: {
+    root.serviceLookupRevision
+    return root.shell && typeof root.shell.serviceFor === "function"
+      ? root.shell.serviceFor("io.github.peterholko.school-mode") : null
+  }
+  readonly property var modeService: root.service || root.lookedUpService
   readonly property bool schoolMode: root.modeService ? root.modeService.schoolMode === true : false
   // Only a confirmed disabled enrollment restores the unrestricted menu.
   // While status is loading, do not briefly expose the full application set.
@@ -35,6 +43,17 @@ Loader {
 
   asynchronous: false
   source: omarchyPath ? "file://" + omarchyPath + "/shell/plugins/menu/Menu.qml" : ""
+
+  // Older hosts supply only serviceFor(). A lookup can initially return null
+  // without a later change notification; retry until status is connected.
+  Timer {
+    interval: 1000
+    repeat: true
+    running: !root.modeService || !root.modeService.connected
+    onTriggered: root.reconnectService()
+  }
+
+  function reconnectService() { root.serviceLookupRevision += 1 }
 
   // When the host does not supply an app library, load the matching installed
   // implementation in this same shell process, preserving its desktop-entry
@@ -172,6 +191,7 @@ Loader {
   }
 
   function launchAllowedApp(payloadJson) {
+    reconnectService()
     if (!root.modeService || !root.modeService.schoolEnabled) return "inactive"
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (error) { return "invalid" }
@@ -219,6 +239,7 @@ Loader {
   }
 
   function open(payloadJson) {
+    reconnectService()
     var payload = normalizedPayload(payloadJson)
     if (item) {
       configureMenu()
@@ -227,6 +248,8 @@ Loader {
       pendingPayload = payload
       hasPendingPayload = true
     }
+    if (!root.modeService || !root.modeService.connected)
+      console.warn("School / Free Time launcher status: " + diagnostics())
   }
 
   function close() {
@@ -236,12 +259,50 @@ Loader {
   }
 
   function refresh() {
+    reconnectService()
     if (!item) return "loading"
     configureMenu()
     return item.refresh()
   }
 
   function ping() { return item ? item.ping() : "loading" }
+
+  // Read-only IPC: compare the launcher's binding with a fresh host lookup,
+  // and distinguish missing status from an empty installed-app provider.
+  function diagnostics() {
+    function status(value) {
+      return {
+        available: !!value,
+        connected: !!value && value.connected === true,
+        enabled: !!value && value.schoolEnabled === true,
+        mode: value ? (value.schoolMode ? "school" : "free") : "unavailable"
+      }
+    }
+    var fresh = root.shell && typeof root.shell.serviceFor === "function"
+      ? root.shell.serviceFor("io.github.peterholko.school-mode") : null
+    var sourceRows = root.sourceAppLibrary ? root.sourceAppLibrary.sortedEntries("") : []
+    var visibleRows = filteredAppLibrary.sortedEntries("")
+    var cachedApps = null
+    if (item && "items" in item) {
+      cachedApps = 0
+      for (var id in item.items)
+        if (item.items[id] && item.items[id].kind === "app") cachedApps += 1
+    }
+    return JSON.stringify({
+      schemaVersion: 1,
+      pluginVersion: root.manifest ? String(root.manifest.version || "") : "",
+      serviceSource: root.service ? "injected" : (root.lookedUpService ? "shell" : "missing"),
+      service: status(root.modeService),
+      freshLookup: status(fresh),
+      restricted: root.restrictApps,
+      approvedApps: root.approvedDesktopIds.length,
+      availableApps: sourceRows.length,
+      visibleApps: visibleRows.length,
+      menuLoaded: !!item,
+      cachedApps: cachedApps,
+      activeMenu: item && "activeMenu" in item ? item.activeMenu : ""
+    })
+  }
 
   onLoaded: configureMenu()
   onOmarchyPathChanged: configureMenu()

@@ -91,7 +91,18 @@ The browser companion and rules are local. No browsing history, visited URLs, ac
 
 ## Update
 
-This release requires updating **both the plugin and its installed service**, including laptops with shared service 4.0.0 from a game. Run in the child's desktop terminal:
+Version **2.1.1** fixes a launcher that stays on “Free Time…” and “Style” when its School Mode service lookup is unavailable, even while the bar countdown works. The launcher accepts Omarchy's directly injected service and retries a missing lookup. App approvals remain enforced while status loads.
+
+If the installed shared service is already **4.2.0**, update the launcher from the child's desktop terminal, without sudo:
+
+```bash
+omarchy plugin update io.github.peterholko.school-mode --yes
+omarchy-shell shell rescanPlugins
+```
+
+Allow a few seconds for the plugins to reload, then reopen the app launcher. This launcher patch does not require service setup or a reboot.
+
+When upgrading from an older shared service, including 4.0.0 from a game, update **both the plugin and its installed service**:
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes
@@ -99,11 +110,21 @@ sudo "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/setup" --us
 python3 -I "$HOME/.config/omarchy/plugins/io.github.peterholko.school-mode/school-desktop.py" enable
 ```
 
-Save your work and reboot once after this update. The running shell can retain old QML components across plugin reloads. A reboot also avoids the launcher issue reported with restarting only the shell. The plugin is version **2.1.0**, with shared service **4.2.0**. Website restrictions remain off until a parent enables them in the new Websites tab.
+Save your work and reboot once after upgrading the installed service. The plugin is version **2.1.1**, with shared service **4.2.0**. Website restrictions remain off until a parent enables them in the new Websites tab.
 
 Existing parent passwords, school app approvals, schedules, desktop recovery information, game progress and Pawberry daily counts are retained. An old unlimited Free Time override returns to School Mode on migration; a parent must start the first timed allowance. The service still includes the current practice-only game endpoints and cannot restore time rewards. For this shared service upgrade, use this repository's setup; an older game's service payload cannot downgrade it.
 
 The launcher compatibility, approved Free Time apps, standalone Math Time entry, startup recovery and readable status publication fixes from earlier releases are included.
+
+### Diagnose an empty launcher
+
+While the problem is happening, open the launcher once and run:
+
+```bash
+omarchy-shell shell call io.github.peterholko.school-mode diagnostics "" | python3 -m json.tool
+```
+
+This reads the running launcher's service connection, a fresh host lookup, and installed/approved/displayed app counts. It does not open an app or change settings. A working current host should report `serviceSource: "injected"` and a connected, enabled service. A healthy root service status file alone does not prove the launcher has that connection. Preserve this output before restarting; it distinguishes a missing connection from an empty app provider. Launcher opens with missing status also write this diagnostic to the `omarchy-shell` journal.
 
 ## Native authentication and recovery
 

@@ -5,6 +5,12 @@ import "shell/services"
 Item {
   id: root
   property bool exposeLibrary: true
+  property bool injectService: false
+  property bool lookupStartsAvailable: true
+  // Some host lookup callbacks do not notify bindings when a service is
+  // registered. Mutating this map reproduces that contract without emitting
+  // a property change from the facade.
+  property var lookupState: ({available: root.lookupStartsAvailable})
   property string pluginPath: ""
   property string installedPath: ""
   AppLibrary { id: sharedLibrary }
@@ -21,7 +27,7 @@ Item {
     property var appLibrary: root.exposeLibrary ? sharedLibrary : null
     property var pluginRegistry: null
     property var barWidgetRegistry: null
-    function serviceFor(id) { return root.mode }
+    function serviceFor(id) { return root.lookupState.available ? root.mode : null }
   }
   Loader {
     id: plugin
@@ -30,6 +36,7 @@ Item {
       item.shell = root.api
       item.omarchyPath = root.installedPath
       item.manifest = {id: "io.github.peterholko.school-mode"}
+      if (root.injectService) item.service = root.mode
     }
   }
 
@@ -37,6 +44,9 @@ Item {
     var menu = plugin.item.item
     var library = plugin.item.sourceAppLibrary
     if (action === "open") plugin.item.open('{"menu":"root"}')
+    else if (action === "refresh") plugin.item.refresh()
+    else if (action === "publish-service") root.lookupState.available = true
+    else if (action === "diagnostics") return plugin.item.diagnostics()
     else if (action === "revoke") {
       mode.allowedDesktopIds = ["Khan Academy"]
       menu.shell.appLibrary.launch("chromium", "Chromium")
