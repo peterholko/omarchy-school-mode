@@ -6,6 +6,7 @@ from . import config, pam_setup
 from .policy import Policy
 from .domains import normalize_domains, MAX_DOMAINS
 from .websites import Websites
+from .family_dns import FamilyDNS
 from omarchy_kids.core import session
 from omarchy_kids.core.storage import read_json, write_json, school_config_path, public_status
 
@@ -19,6 +20,7 @@ class Service:
         self.sessions = {}
         self.last_lock = {}
         self.websites = Websites(self)
+        self.family_dns = FamilyDNS(self)
 
     def managed_uids(self):
         result = []
@@ -61,7 +63,7 @@ class Service:
         return {"ok": True, "enabled": True, "schemaVersion": 1,
                 **self.snapshot(uid, now), "blocked_periods": policy.profile["blocked_periods"],
                 "free_time_timer_version": 1, "free_time_ready": pam_setup.ready(),
-                "websites": self.websites.status(uid)}
+                "websites": {**self.websites.status(uid), "familyDns": self.family_dns.status()}}
 
     def publish(self, uid, now):
         data = self.status(uid, now)
@@ -116,6 +118,7 @@ class Service:
                     self.policies.pop(target, None)
                     self.override_path(target).unlink(missing_ok=True)
                 write_json(self.path, self.config)
+                self.family_dns.reconcile()
                 self.websites.reconcile(self.host.clock.now())
                 self.publish(target, self.host.clock.now())
             return {"ok": True, "users": sorted(self.config["users"])}
@@ -172,6 +175,8 @@ class Service:
                         return {"ok": False, "error": "bad_domains", "message": str(error)}
                 if not config.valid_patch(patch):
                     return {"ok": False, "error": "bad_patch"}
+                if patch.get("family_dns_enabled") is True and not self.family_dns.integration.ready():
+                    return {"ok": False, "error": "family_dns_setup", "message": "Run the updated School Mode setup before enabling Family DNS."}
                 key = self.config["users"][session.username_for(uid)]["profile"]
                 updated = config.sanitize_profile({**self.config["profiles"][key], **patch})
                 if updated["websites_enabled"] and set(patch) & {"websites_enabled", "school_blocked_domains"}:
@@ -191,6 +196,9 @@ class Service:
                 for target in self.managed_uids():
                     self.snapshot(target, now)
                 self.config["profiles"][key] = updated
+                if "family_dns_enabled" in patch:
+                    # DNS is one laptop-wide preference shared by all profiles.
+                    self.config["family_dns_enabled"] = patch["family_dns_enabled"]
                 for target in self.managed_uids():
                     policy = self.policy_for(target)
                     if "blocked_periods" in patch:
@@ -202,6 +210,7 @@ class Service:
         return {"ok": False, "error": "unknown_command"}
 
     def tick(self, now, elapsed):
+        self.family_dns.reconcile()
         self.websites.reconcile(now)
         for uid in self.managed_uids():
             data = self.snapshot(uid, now)

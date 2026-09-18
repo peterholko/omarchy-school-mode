@@ -83,9 +83,18 @@ def find(name):
 
 def click(name):
     item = find(name)
+    if not name.endswith('Tab'):
+        viewport = find('settingsScrollArea').property('contentItem')
+        point = item.mapToItem(viewport, QPointF(item.width()/2, item.height()/2))
+        if point.y() < 0 or point.y() > viewport.height():
+            maximum = max(0, viewport.property('contentHeight') - viewport.height())
+            viewport.setProperty('contentY', max(0, min(maximum, viewport.property('contentY') + point.y() - viewport.height()/2)))
+            QTest.qWait(40)
     point = item.mapToScene(QPointF(item.width()/2, item.height()/2)).toPoint()
     QTest.mouseClick(win, Qt.LeftButton, Qt.NoModifier, point)
     QTest.qWait(40)
+    if name.endswith('Tab'):
+        find('settingsScrollArea').property('contentItem').setProperty('contentY', 0)
 
 
 def screenshot(window, name):
@@ -109,14 +118,28 @@ assert state()['note'] == 'Saved.', state()
 screenshot(win, 'free-time-saved.png')
 click('websitesTab')
 assert state()['page'] == 'websites'
+assert not find('familyDnsToggle').property('checked')
+click('familyDnsToggle')
+assert find('familyDnsToggle').property('checked')
+assert any(json.loads(command[-1]) == {'family_dns_enabled': True}
+           for command in state()['commands'] if command[2:4] == ['config', 'patch']), state()
+QMetaObject.invokeMethod(probe, 'dnsApplying')
+assert not find('familyDnsToggle').isEnabled()
+assert find('familyDnsStatus').property('text') == 'Applying DNS settings…'
+QMetaObject.invokeMethod(probe, 'dnsError')
+assert find('familyDnsToggle').isEnabled()
+assert find('familyDnsStatus').property('text').startswith('Could not apply Family DNS.')
+QMetaObject.invokeMethod(probe, 'browserReady')
 field = find('blockedDomainsField')
 field.setProperty('text', 'youtube.com\nroblox.com')
 click('websiteFilteringToggle')
 click('saveWebsitesButton')
 assert any(json.loads(command[-1]) == {'websites_enabled': True, 'school_blocked_domains': ['youtube.com', 'roblox.com']}
            for command in state()['commands'] if command[2:4] == ['config', 'patch']), state()
-assert state()['writes'] == ['fixture-parent-secret\n', 'fixture-parent-secret\n']
+assert state()['writes'] == ['fixture-parent-secret\n'] * 3
 QMetaObject.invokeMethod(probe, 'browserReady')
+screenshot(win, 'websites-school-rules.png')
+find('settingsScrollArea').property('contentItem').setProperty('contentY', 0)
 screenshot(win, 'websites.png')
 QMetaObject.invokeMethod(probe, 'websiteError')
 assert state()['note'].startswith('Use domains'), state()
@@ -133,6 +156,10 @@ click('freeTimeTab')
 screenshot(win, 'free-time-large-text.png')
 click('websitesTab')
 screenshot(win, 'websites-large-text.png')
+click('familyDnsToggle')
+assert not find('familyDnsToggle').property('checked')
+assert any(json.loads(command[-1]) == {'family_dns_enabled': False}
+           for command in state()['commands'] if command[2:4] == ['config', 'patch']), state()
 win.close()
 QTest.qWait(20)
 assert state()['password'] == '', state()
@@ -148,4 +175,4 @@ QMetaObject.invokeMethod(bar, 'school')
 assert not count.isVisible()
 screenshot(bar, 'school-bar-panel.png')
 bar.close()
-print(f'PASS: all three tabs, time/domain saves, stdin authentication, website status/errors, close cleanup and countdown. Inspect screenshots in {base}.')
+print(f'PASS: all three tabs, time/domain saves, Family DNS toggle/applying/errors, stdin authentication, website status/errors, close cleanup and countdown. Inspect screenshots in {base}.')

@@ -1,6 +1,6 @@
 [Unit]
 Description=Omarchy community controls and optional game verification
-After=systemd-logind.service
+After=systemd-logind.service NetworkManager.service systemd-resolved.service
 
 [Service]
 Type=simple
@@ -18,6 +18,7 @@ ProtectHome=read-only
 PrivateTmp=yes
 ReadWritePaths=/etc/omarchy-kids-controls /var/lib/omarchy-kids-controls /run/omarchy-kids-controls
 ReadWritePaths=-/etc/chromium/policies/managed -/etc/opt/chrome/policies/managed
+ReadWritePaths=-/etc/NetworkManager/conf.d -/etc/systemd/resolved.conf.d
 
 [Install]
 WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 # School / Free Time
 
-Approved apps, school schedules, optional School Mode website restrictions and a parent-granted Free Time countdown in one plugin and one parent settings window. Free Time starts with **30 minutes** by default. When it expires, the native lock screen requires the **controls parent password**, then returns to School Mode.
+Approved apps, school schedules, optional website restrictions and Cloudflare Family DNS, and a parent-granted Free Time countdown in one plugin and one parent settings window. Free Time starts with **30 minutes** by default. When it expires, the native lock screen requires the **controls parent password**, then returns to School Mode.
 
 A community plugin for **Omarchy Quattro with the Quickshell plugin system**. It works on a regular Omarchy installation; an Omarchy Kids ISO or fork is not required. The plugin ID is `io.github.peterholko.school-mode`.
 
@@ -11,8 +11,8 @@ Local previews of the actual interface, using sample settings and the Bubblegum 
 | School Mode: learning games and school hours | Free Time: minutes per allowance |
 | --- | --- |
 | ![School Mode settings with optional learning games and a weekday school schedule](docs/screenshots/school-settings.png) | ![Free Time settings with a 30-minute allowance and an explanation of parent unlock](docs/screenshots/free-time-settings.png) |
-| **Websites: restrictions during School Mode** | **Free Time: live countdown** |
-| ![Website settings blocking youtube.com and roblox.com during School Mode](docs/screenshots/website-settings.png) | ![Free Time countdown showing 29 minutes 58 seconds remaining and a Return to School Mode button](docs/screenshots/free-time-countdown.png) |
+| **Websites: Family DNS and School Mode restrictions** | **Free Time: live countdown** |
+| ![Websites settings with Cloudflare Family DNS enabled in both modes and youtube.com and roblox.com blocked during School Mode](docs/screenshots/website-settings.png) | ![Free Time countdown showing 29 minutes 58 seconds remaining and a Return to School Mode button](docs/screenshots/free-time-countdown.png) |
 
 **After Free Time expires, the lock screen explains that a parent must unlock it.**
 
@@ -77,6 +77,12 @@ sudo omarchy-kids-controls enable school --user CHILD_USERNAME
 
 ## Websites
 
+**Cloudflare Family DNS** is a separate, optional toggle at the top of this tab. Open the parent settings with the controls parent password, choose **Websites**, and flip the toggle. It saves immediately and filters malware and adult-content domains in **both School Mode and Free Time**, for **all accounts on the laptop**. It starts off. Wait for **On for School Mode and Free Time**; applying and error messages appear below the toggle. Turning it off restores the network's usual DNS settings. The selection survives reboots and network changes.
+
+The resolver uses [Cloudflare's malware and adult-content addresses](https://developers.cloudflare.com/1.1.1.1/ip-addresses/): `1.1.1.3`, `1.0.0.3`, `2606:4700:4700::1113` and `2606:4700:4700::1003`. Chrome and Chromium use the system resolver while this toggle is on. Apps with their own DNS, proxies or VPNs can bypass system DNS; some private networks and captive portals may require a parent to turn this off temporarily. DNS lookups go to Cloudflare while enabled.
+
+### Selected websites during School Mode
+
 Website restrictions start **off**, with an empty list. After running the updated setup:
 
 1. Open School / Free Time → settings and enter the controls parent password.
@@ -89,13 +95,13 @@ Domains include their subdomains: `youtube.com` also covers `www.youtube.com` an
 
 Chrome/Chromium policies apply to **all accounts on this laptop**. With multiple enrolled children, the effective list is the union of the enabled lists for accounts currently in School Mode. Another child's active School Mode can therefore keep a domain blocked during your account's Free Time; the tab reports this. Existing restrictions from other software remain in effect.
 
-This is browser filtering, not a system-wide network filter. Firefox, other browsers, native apps, proxy sites and manually altered browser launches are outside its scope. The companion handles existing tabs in regular browser windows; it does not inspect existing Incognito/Guest tabs. Chrome's managed URL policy handles new navigations there, but close any existing private windows before relying on a School transition. No DNS, VPN, Wi-Fi or captive-portal settings are changed.
+The selected-domain list applies to Chrome and Chromium. Firefox, other browsers, native apps, proxy sites and manually altered browser launches are outside this list's scope. The companion handles existing tabs in regular browser windows; it does not inspect existing Incognito/Guest tabs. Chrome's managed URL policy handles new navigations there, but close any existing private windows before relying on a School transition. This list works independently of the Family DNS toggle; Free Time releases the School-only list while Family DNS stays enabled if selected.
 
 The browser companion and rules are local. No browsing history, visited URLs, accounts or passwords are sent to a server. Conflicting administrator browser policies are reported in settings rather than silently replaced. See [website integration details and troubleshooting](docs/websites.md).
 
 ## Update
 
-Version **2.2.0**, with shared service **4.3.0**, adds the parent-password notice to Omarchy's native lock screen. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
+Version **2.3.0**, with shared service **4.4.0**, adds the parent-controlled Cloudflare Family DNS toggle to Websites. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes

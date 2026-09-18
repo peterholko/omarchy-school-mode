@@ -183,7 +183,7 @@ def install(args):
     ensure_directory(CONFIG, 0o700)
     ensure_directory(STATE, 0o755)
     previous = installed()
-    from omarchy_kids.school_mode import lock_notice_setup, pam_setup, websites_setup
+    from omarchy_kids.school_mode import family_dns, lock_notice_setup, pam_setup, websites_setup
     selected_school = args.module in ('school', 'controls')
     notice_plan = lock_notice_setup.plan(args.omarchy_path) if selected_school else None
     omarchy_path = Path(notice_plan['target']).parents[3] if notice_plan else Path('/usr/share/omarchy')
@@ -191,6 +191,9 @@ def install(args):
         raise ValueError('install on Omarchy Quattro with its packaged shell')
     pam_plan = pam_setup.plan() if selected_school else None
     website_plan = websites_setup.plan() if selected_school or 'school' in previous.get('modules', []) else None
+    dns_integration = family_dns.Integration() if website_plan is not None else None
+    if dns_integration is not None:
+        dns_integration.plan()
     incoming = payload_files(SOURCE)
     owned = previous.get('payload', {})
     if PREFIX.exists() or PREFIX.is_symlink():
@@ -264,6 +267,8 @@ def install(args):
         pam_setup.install(pam_plan)
     if website_plan is not None:
         websites_setup.install(website_plan)
+    if dns_integration is not None:
+        dns_integration.install()
     if notice_plan is not None:
         lock_notice_setup.install(notice_plan)
     paths.write_private(UNIT, unit)
@@ -309,7 +314,8 @@ def remove(module):
         if module == 'school':
             restore_desktop(user)
     if module == 'school':
-        from omarchy_kids.school_mode import lock_notice_setup, pam_setup, websites_setup
+        from omarchy_kids.school_mode import family_dns, lock_notice_setup, pam_setup, websites_setup
+        family_dns.Integration().remove()
         lock_notice_setup.remove()
         pam_setup.remove()
         websites_setup.remove()

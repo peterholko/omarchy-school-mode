@@ -7,10 +7,43 @@ Column {
   id: root
   spacing: Style.space(14)
   property bool filteringEnabled: false
+  property bool familyDnsEnabled: false
   property string domainText: ""
   property bool saving: false
   property var status: ({})
   signal saveRequested(var patch)
+  readonly property var dnsStatus: status.familyDns || ({})
+
+  function dnsStatusText() {
+    if (dnsStatus.error) return String(dnsStatus.error)
+    if (dnsStatus.applying) return "Applying DNS settings…"
+    if (dnsStatus.active) return "On for School Mode and Free Time."
+    if (familyDnsEnabled) return "Waiting for Family DNS to apply…"
+    return "Off. Using the laptop's usual DNS."
+  }
+
+  PanelSectionHeader { text: "FAMILY DNS · BOTH MODES"; foreground: Color.foreground }
+  Toggle {
+    objectName: "familyDnsToggle"
+    width: parent.width
+    label: "Cloudflare Family DNS"
+    description: "Filter malware and adult websites on this laptop."
+    checked: root.familyDnsEnabled
+    enabled: !root.saving && !root.dnsStatus.applying
+    onClicked: root.saveRequested({family_dns_enabled: !root.familyDnsEnabled})
+  }
+  Text {
+    objectName: "familyDnsStatus"
+    width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
+    text: root.dnsStatusText()
+    color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption
+  }
+  Text {
+    width: parent.width; wrapMode: Text.WordWrap; textFormat: Text.PlainText
+    text: "Applies immediately to all accounts. Turning it off restores the usual network DNS."
+    color: Qt.alpha(Color.foreground, 0.65); font.family: Style.font.family; font.pixelSize: Style.font.caption
+  }
+  PanelSeparator { width: parent.width }
 
   function statusText() {
     if (status.error) {

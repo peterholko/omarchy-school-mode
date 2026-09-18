@@ -1,4 +1,4 @@
-# Shared controls service 4.3.0
+# Shared controls service 4.4.0
 
 This payload is shipped by the standalone School / Free Time plugin. It upgrades the 4.0.0 practice-only service used by Pawberry Pet Hotel, Number Grove and Paw Post without changing their game protocols, completed work, limits or collections. Game endpoints still return zero time and cannot register or enable rewards.
 
@@ -10,4 +10,4 @@ The School service stores each parent-granted allowance's deadline and next sche
 
 See the repository [README](../README.md) for installation, updating, PAM recovery and removal. Run `python3 -m unittest discover -s tests -v` from this checkout for local protocol, persistence, setup and QML regressions. Real Linux PAM/session locking requires a manual Omarchy check; no CI, ISO or VM runs are involved.
 
-The School module includes optional Chrome/Chromium website filtering. Separate domain, policy, installer and native-messaging modules keep it independent of the Free Time timer. Setup prepares a locally signed browser companion; only a parent's Websites setting activates it. See [website integration](../docs/websites.md) for owned files, machine-wide scope, transport and local validation.
+The School module includes optional Chrome/Chromium website filtering and an independent Cloudflare Family DNS toggle for both modes. Separate domain, policy, installer, DNS and native-messaging modules keep these independent of the Free Time timer. Setup prepares a locally signed browser companion and inert DNS files; only parent settings activate them. DNS configuration runs on a separate worker and restores the existing network configuration when disabled. See [website integration](../docs/websites.md) for owned files, machine-wide scope, transport and local validation.

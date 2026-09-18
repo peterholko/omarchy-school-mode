@@ -49,6 +49,9 @@ class Setup(unittest.TestCase):
         website_plan, website_install = websites_setup.plan, websites_setup.install
         self.context.enter_context(patch.object(websites_setup, 'plan', lambda: website_plan(m.CONFIG, m.STATE, website_etc)))
         self.context.enter_context(patch.object(websites_setup, 'install', lambda previous: website_install(previous, m.CONFIG, m.STATE, website_etc)))
+        from omarchy_kids.school_mode import family_dns
+        dns_integration = family_dns.Integration
+        self.context.enter_context(patch.object(family_dns, 'Integration', lambda: dns_integration(m.CONFIG, website_etc)))
         from omarchy_kids.school_mode import lock_notice_setup
         from test_lock_notice import VIEW
         self.omarchy = self.root / 'omarchy'
@@ -121,7 +124,7 @@ class Setup(unittest.TestCase):
             self.install('pawberry')
             remove.assert_called_once_with()
         self.assertFalse(obsolete.exists())
-        self.assertEqual(m.installed()['version'], '4.3.0')
+        self.assertEqual(m.installed()['version'], '4.4.0')
         self.assertEqual(m.installed()['modules'], ['pawberry', 'school'])
         self.assertEqual((m.CONFIG/'school-mode.json').read_text(), school)
         self.assertNotIn('/var/lib/peterholko-screen-time', m.UNIT.read_text())

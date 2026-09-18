@@ -63,6 +63,7 @@ Item {
     root.localApps = Allowlist.normalizeIds(profile ? profile.school_apps : (root.service ? root.service.allowedDesktopIds : []))
     root.localFreeTimeMinutes = profile && Number.isInteger(profile.free_time_minutes) ? profile.free_time_minutes : 30
     websitesPage.filteringEnabled = profile && profile.websites_enabled === true
+    websitesPage.familyDnsEnabled = config && config.family_dns_enabled === true
     websitesPage.domainText = profile && Array.isArray(profile.school_blocked_domains) ? profile.school_blocked_domains.join("\n") : ""
     root.settingsPage = "school"
     win.visible = true
@@ -180,6 +181,8 @@ Item {
     if (payload && payload.ok === true) {
       if (root.activePatch && root.activePatch.school_apps !== undefined)
         root.localApps = Allowlist.normalizeIds(root.activePatch.school_apps)
+      if (root.activePatch && root.activePatch.family_dns_enabled !== undefined)
+        websitesPage.familyDnsEnabled = root.activePatch.family_dns_enabled
       root.note = root.pendingPatch !== null ? "Saving…" : "Saved."
       root.noteColor = root.okColor
     } else {
@@ -189,7 +192,7 @@ Item {
         root.note = "Too many tries. Close this window and unlock it again later."
       else if (payload && payload.error === "bad_password")
         root.note = "The parent password is no longer accepted. Close this window and unlock it again."
-      else if (payload && (payload.error === "bad_domains" || payload.error === "websites_setup"))
+      else if (payload && (payload.error === "bad_domains" || payload.error === "websites_setup" || payload.error === "family_dns_setup"))
         root.note = String(payload.message || "Check website settings and setup.")
       else
         root.note = "Could not save settings. Try again."
@@ -259,6 +262,7 @@ Item {
 
       ScrollView {
         id: scrollArea
+        objectName: "settingsScrollArea"
         anchors.top: pageTabs.bottom; anchors.bottom: parent.bottom
         anchors.left: parent.left; anchors.right: parent.right
         anchors.margins: Style.space(20)

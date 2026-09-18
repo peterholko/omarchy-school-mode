@@ -70,11 +70,15 @@ def sanitize(raw):
         enrollments[field] = result
     users = enrollments["users"]
 
-    return {"version": 1, "active_profile": active, "profiles": profiles, "users": users, "disabled_users": enrollments["disabled_users"]}
+    return {"version": 1, "active_profile": active, "profiles": profiles, "users": users,
+            "family_dns_enabled": raw.get("family_dns_enabled") is True,
+            "disabled_users": enrollments["disabled_users"]}
 
 
 def valid_patch(patch):
-    if not isinstance(patch, dict) or set(patch) - {"name", "school_apps", "blocked_periods", "free_time_minutes", "websites_enabled", "school_blocked_domains"}:
+    if not isinstance(patch, dict) or set(patch) - {"name", "school_apps", "blocked_periods", "free_time_minutes", "websites_enabled", "school_blocked_domains", "family_dns_enabled"}:
+        return False
+    if "family_dns_enabled" in patch and type(patch["family_dns_enabled"]) is not bool:
         return False
     if "websites_enabled" in patch and type(patch["websites_enabled"]) is not bool:
         return False
