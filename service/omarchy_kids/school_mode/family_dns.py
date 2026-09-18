@@ -59,33 +59,34 @@ def command(*args):
         raise ValueError(f"Could not run {' '.join(args)} for Family DNS: {error}") from error
 
 
-def resolved_servers(output):
+def resolved_configuration(output):
     """Read resolvectl's labelled blocks, including wrapped continuation lines.
 
     It wraps even with stdout piped. A colon on an indented IPv6 line is part
     of the address, not a separator between the label and its server list.
     """
-    servers = set()
-    have_header = False
+    sections = []
+    section = None
     for line in output.splitlines():
         if not line.strip():
             continue
-        header = re.fullmatch(r"(?:Global|Link \d+ \([^\r\n]*\)|Delegate [^:\r\n]+):\s*(.*)", line)
+        header = re.fullmatch(r"(?:Global|Link (\d+) \(([^\r\n]*)\)|Delegate [^:\r\n]+):\s*(.*)", line)
         if header:
-            have_header = True
-            values = header[1]
-        elif have_header and line[:1].isspace():
+            section = {"index": header[1], "name": header[2], "servers": set()}
+            sections.append(section)
+            values = header[3]
+        elif section is not None and line[:1].isspace():
             values = line.strip()
         else:
             raise ValueError("Could not read systemd-resolved's DNS output. Run resolvectl dns to inspect it.")
         for value in values.split():
             try:
-                servers.add(str(ipaddress.ip_address(value.split("#", 1)[0].split("%", 1)[0])))
+                section["servers"].add(str(ipaddress.ip_address(value.split("#", 1)[0].split("%", 1)[0])))
             except ValueError as error:
                 raise ValueError(f"Could not read a systemd-resolved DNS address: {value[:120]}") from error
-    if not have_header:
+    if not sections:
         raise ValueError("systemd-resolved did not return its DNS configuration. Retry the toggle.")
-    return servers
+    return sections
 
 
 class Integration:
@@ -178,6 +179,16 @@ class Integration:
         if enabled:
             self.run("/usr/bin/nmcli", "general", "reload", "conf")
             self.run("/usr/bin/systemctl", "restart", "systemd-resolved.service")
+            # resolved persists D-Bus per-link settings across restarts. Stop
+            # NM's updates first, then clear only its managed links' DNS lists.
+            # Unlike `revert`, this leaves mDNS/LLMNR and routing settings alone.
+            for link in resolved_configuration(self.run("/usr/bin/resolvectl", "dns")):
+                if not link["index"] or not link["servers"]:
+                    continue
+                managed = self.run("/usr/bin/nmcli", "--get-values", "GENERAL.NM-MANAGED",
+                                   "device", "show", link["name"]).strip()
+                if managed == "yes":
+                    self.run("/usr/bin/resolvectl", "dns", link["index"], "")
         else:
             self.run("/usr/bin/systemctl", "restart", "systemd-resolved.service")
             # These are distinct reloads: nmcli rejects two flag arguments.
@@ -192,7 +203,8 @@ class Integration:
                 {s for s in effective.sections() if s.startswith("global-dns-domain-")} != {"global-dns-domain-*"} or
                 {ip.strip() for ip in effective.get("global-dns-domain-*", "servers", fallback="").split(",")} != set(SERVERS)):
             raise ValueError("Another NetworkManager configuration overrides Family DNS. Review it before retrying.")
-        servers = resolved_servers(self.run("/usr/bin/resolvectl", "dns"))
+        servers = {server for section in resolved_configuration(self.run("/usr/bin/resolvectl", "dns"))
+                   for server in section["servers"]}
         if servers != set(SERVERS):
             unexpected = sorted(servers - set(SERVERS))
             missing = sorted(set(SERVERS) - servers)

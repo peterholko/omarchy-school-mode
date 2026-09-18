@@ -30,6 +30,11 @@ class Resolver(unittest.TestCase):
         self.fail_next_restart = False
         self.resolved_override = ""
         self.resolved_output = None
+        self.link_names = {2: "wlan0"}
+        self.normal_link_dns = {2: ["192.168.1.1"]}
+        self.link_dns = {index: list(servers) for index, servers in self.normal_link_dns.items()}
+        self.nm_managed = {"wlan0"}
+        self.fail_clear = None
         self.integration = dns.Integration(self.config, self.etc, self.run_command)
 
     def run_command(self, *args):
@@ -48,20 +53,40 @@ class Resolver(unittest.TestCase):
                 self.assertEqual({str(ip) for ip in addresses},
                                  {"1.1.1.3", "1.0.0.3", "2606:4700:4700::1113", "2606:4700:4700::1003"})
             return (dns.NM_ON if enabled else "[main]\ndns=systemd-resolved\n") + self.other_nm
-        if args[0] == "/usr/bin/nmcli":
+        if args[:3] == ("/usr/bin/nmcli", "--get-values", "GENERAL.NM-MANAGED"):
+            self.assertEqual(args[3:5], ("device", "show"))
+            return "yes\n" if args[5] in self.nm_managed else "no\n"
+        if args[:3] == ("/usr/bin/nmcli", "general", "reload"):
             # nmcli accepts a single flags argument; a second positional flag
             # is an error, even though the manual writes the synopsis flags….
             if len(args) > 4:
                 raise ValueError("Error: extra argument 'dns-full'")
             (self.etc / "resolv.conf").write_text(
                 "".join(f"nameserver {ip}\n" for ip in dns.SERVERS) if enabled else self.normal)
+            if not enabled:
+                # NetworkManager republishes the connection's current DNS when
+                # its resolved plugin is restored. No stale snapshot is replayed.
+                for index, servers in self.normal_link_dns.items():
+                    if self.link_names[index] in self.nm_managed:
+                        self.link_dns[index] = list(servers)
         if args[:2] == ("/usr/bin/systemctl", "restart") and self.fail_next_restart:
             self.fail_next_restart = False
             raise ValueError("fixture resolver restart failed")
         if args[0] == "/usr/bin/resolvectl":
+            if len(args) == 4:
+                self.assertEqual((args[1], args[3]), ("dns", ""))
+                index = int(args[2])
+                if self.fail_clear == index:
+                    raise ValueError("fixture DNS clear failed")
+                self.link_dns[index] = []
+                return ""
             if self.resolved_output is not None:
                 return self.resolved_output
-            return "Global: " + " ".join(dns.SERVERS) + "\nLink 2 (wlan0): " + self.resolved_override + "\n"
+            # Like resolved, retain per-link DNS across a service restart.
+            result = "Global: " + (" ".join(dns.SERVERS) if enabled else "") + "\n"
+            for index, servers in self.link_dns.items():
+                result += f"Link {index} ({self.link_names[index]}): " + "\n        ".join(servers) + "\n"
+            return result + "Link 99 (external0): " + self.resolved_override + "\n"
         return ""
 
     def test_enable_disable_and_removal_preserve_network_profiles_and_unrelated_policies(self):
@@ -74,6 +99,7 @@ class Resolver(unittest.TestCase):
         self.assertFalse(self.calls, "Setup must leave DNS unchanged until the parent enables it")
         self.assertTrue(self.integration.ready())
         self.integration.apply(True)
+        self.assertEqual(self.link_dns[2], [], "Persisted DHCP DNS must not bypass Family DNS")
         for path, values in dns.files(self.etc).items():
             self.assertEqual(path.read_text(), values[1])
             self.assertEqual(path.stat().st_mode & 0o777, 0o644)
@@ -82,6 +108,7 @@ class Resolver(unittest.TestCase):
         self.integration.install()  # Upgrade leaves an enabled resolver enabled.
         self.assertEqual((self.etc / "NetworkManager/conf.d" / dns.NAME).read_text(), dns.NM_ON)
         self.integration.apply(False)
+        self.assertEqual(self.link_dns[2], ["192.168.1.1"])
         self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
         self.assertEqual((profile.read_bytes(), unrelated.read_bytes()), before)
         count = len(self.calls)
@@ -91,6 +118,48 @@ class Resolver(unittest.TestCase):
         self.assertFalse(any(p.exists() for p in dns.files(self.etc)))
         self.assertEqual((profile.read_bytes(), unrelated.read_bytes()), before)
         self.assertNotIn(("/usr/bin/systemctl", "restart", "NetworkManager.service"), self.calls)
+
+    def test_all_managed_links_clear_ipv4_and_ipv6_and_restore_current_network_dns(self):
+        self.integration.install()
+        self.link_names[3] = "eth0"
+        self.nm_managed.add("eth0")
+        self.link_dns[3] = ["192.168.2.1", "fe80::1%3"]
+        self.normal_link_dns[3] = list(self.link_dns[3])
+        self.integration.apply(True)
+        self.assertEqual(self.link_dns, {2: [], 3: []})
+        # A different Wi-Fi network while enabled must regain its own DNS.
+        self.normal_link_dns[2] = ["192.168.5.1", "2001:db8::53"]
+        self.integration.apply(False)
+        self.assertEqual(self.link_dns, self.normal_link_dns)
+
+    def test_unmanaged_router_is_not_silently_allowed_or_cleared(self):
+        self.integration.install()
+        self.nm_managed.clear()
+        with self.assertRaisesRegex(ValueError, "additional servers: 192.168.1.1"):
+            self.integration.apply(True)
+        self.assertEqual(self.link_dns[2], ["192.168.1.1"])
+        self.assertFalse(any(call[0] == "/usr/bin/resolvectl" and len(call) == 4 for call in self.calls))
+
+    def test_failed_clear_restores_dns_on_previously_cleared_links(self):
+        self.integration.install()
+        self.link_names[3] = "eth0"
+        self.nm_managed.add("eth0")
+        self.link_dns[3] = self.normal_link_dns[3] = ["192.168.2.1"]
+        self.fail_clear = 3
+        with self.assertRaisesRegex(ValueError, "DNS clear failed"):
+            self.integration.apply(True)
+        self.assertIn(("/usr/bin/resolvectl", "dns", "2", ""), self.calls)
+        self.assertEqual(self.link_dns, self.normal_link_dns)
+        for path, values in dns.files(self.etc).items():
+            self.assertEqual(path.read_text(), values[0])
+        self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
+
+    def test_global_router_setting_remains_a_conflict(self):
+        self.integration.install()
+        self.resolved_output = "Global: " + " ".join(dns.SERVERS) + " 192.168.1.1\n"
+        with self.assertRaisesRegex(ValueError, "additional servers: 192.168.1.1"):
+            self.integration.apply(True)
+        self.assertFalse(any(call[0] == "/usr/bin/resolvectl" and len(call) == 4 for call in self.calls))
 
     def test_reload_failure_rolls_back_and_a_retry_succeeds(self):
         self.integration.install()
@@ -120,7 +189,7 @@ class Resolver(unittest.TestCase):
         self.integration.install()
         self.resolved_output = (
             "Global: 1.1.1.3 1.0.0.3 2606:4700:4700::1113 2606:4700:4700::1003\n"
-            "Link 2 (wlan0):\n        2001:db8::53\n")
+            "Link 99 (external0):\n        2001:db8::53\n")
         with self.assertRaisesRegex(ValueError, "2001:db8::53") as failure:
             self.integration.apply(True)
         self.assertNotIn("restoration also failed", str(failure.exception))
@@ -152,6 +221,8 @@ class Resolver(unittest.TestCase):
         self.resolved_override = "2001:db8::53"
         with self.assertRaisesRegex(ValueError, "additional servers: 2001:db8::53"):
             self.integration.apply(True)
+        self.assertIn(("/usr/bin/resolvectl", "dns", "2", ""), self.calls)
+        self.assertEqual(self.link_dns[2], ["192.168.1.1"], "Failure must restore the cleared router DNS")
         self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
         self.resolved_override = ""
         self.other_nm = "[main]\ndns=none\n"

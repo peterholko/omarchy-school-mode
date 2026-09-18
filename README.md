@@ -101,7 +101,7 @@ The browser companion and rules are local. No browsing history, visited URLs, ac
 
 ## Update
 
-Version **2.3.1**, with shared service **4.4.1**, fixes Family DNS verification of wrapped IPv6 output and DNS restoration after a failed change. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
+Version **2.3.2**, with shared service **4.4.2**, fixes activation when systemd-resolved retains the router's DNS on a NetworkManager connection. Family DNS clears those retained server lists while enabled; turning it off restores each connection's current DNS. The earlier wrapped IPv6 and restoration fixes are included. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes
