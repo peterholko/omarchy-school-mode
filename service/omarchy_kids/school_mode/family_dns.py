@@ -10,6 +10,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import threading
 import time
@@ -47,9 +48,44 @@ def files(etc):
 def command(*args):
     try:
         return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              text=True, timeout=6, env={**os.environ, "LC_ALL": "C"}).stdout
-    except (OSError, subprocess.SubprocessError) as error:
-        raise ValueError(f"Could not apply Family DNS ({Path(args[0]).name}). Check NetworkManager and systemd-resolved, then retry the toggle.") from error
+                              text=True, timeout=6,
+                              env={**os.environ, "LC_ALL": "C", "SYSTEMD_COLORS": "0"}).stdout
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(f"Family DNS timed out running {' '.join(args)}. Check the network services and retry.") from error
+    except subprocess.CalledProcessError as error:
+        detail = " ".join((error.stderr or "No error details returned.").split())[:600]
+        raise ValueError(f"Family DNS command failed ({' '.join(args)}): {detail}") from error
+    except OSError as error:
+        raise ValueError(f"Could not run {' '.join(args)} for Family DNS: {error}") from error
+
+
+def resolved_servers(output):
+    """Read resolvectl's labelled blocks, including wrapped continuation lines.
+
+    It wraps even with stdout piped. A colon on an indented IPv6 line is part
+    of the address, not a separator between the label and its server list.
+    """
+    servers = set()
+    have_header = False
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        header = re.fullmatch(r"(?:Global|Link \d+ \([^\r\n]*\)|Delegate [^:\r\n]+):\s*(.*)", line)
+        if header:
+            have_header = True
+            values = header[1]
+        elif have_header and line[:1].isspace():
+            values = line.strip()
+        else:
+            raise ValueError("Could not read systemd-resolved's DNS output. Run resolvectl dns to inspect it.")
+        for value in values.split():
+            try:
+                servers.add(str(ipaddress.ip_address(value.split("#", 1)[0].split("%", 1)[0])))
+            except ValueError as error:
+                raise ValueError(f"Could not read a systemd-resolved DNS address: {value[:120]}") from error
+    if not have_header:
+        raise ValueError("systemd-resolved did not return its DNS configuration. Retry the toggle.")
+    return servers
 
 
 class Integration:
@@ -144,7 +180,9 @@ class Integration:
             self.run("/usr/bin/systemctl", "restart", "systemd-resolved.service")
         else:
             self.run("/usr/bin/systemctl", "restart", "systemd-resolved.service")
-            self.run("/usr/bin/nmcli", "general", "reload", "conf", "dns-full")
+            # These are distinct reloads: nmcli rejects two flag arguments.
+            self.run("/usr/bin/nmcli", "general", "reload", "conf")
+            self.run("/usr/bin/nmcli", "general", "reload", "dns-full")
 
     def verify(self):
         effective = self.nm_config()
@@ -154,12 +192,16 @@ class Integration:
                 {s for s in effective.sections() if s.startswith("global-dns-domain-")} != {"global-dns-domain-*"} or
                 {ip.strip() for ip in effective.get("global-dns-domain-*", "servers", fallback="").split(",")} != set(SERVERS)):
             raise ValueError("Another NetworkManager configuration overrides Family DNS. Review it before retrying.")
-        servers = []
-        for line in self.run("/usr/bin/resolvectl", "dns").splitlines():
-            if ":" in line:
-                servers.extend(word.split("#", 1)[0] for word in line.split(":", 1)[1].split())
-        if set(servers) != set(SERVERS):
-            raise ValueError("Another resolver configuration overrides Family DNS. Review systemd-resolved settings before retrying.")
+        servers = resolved_servers(self.run("/usr/bin/resolvectl", "dns"))
+        if servers != set(SERVERS):
+            unexpected = sorted(servers - set(SERVERS))
+            missing = sorted(set(SERVERS) - servers)
+            details = []
+            if unexpected:
+                details.append("additional servers: " + ", ".join(unexpected))
+            if missing:
+                details.append("missing Family DNS servers: " + ", ".join(missing))
+            raise ValueError("systemd-resolved DNS does not match Family DNS (" + "; ".join(details) + "). Check resolvectl dns and resolver settings.")
         nameservers = [line.split()[1] for line in (self.etc / "resolv.conf").read_text().splitlines()
                        if line.split()[:1] == ["nameserver"] and len(line.split()) >= 2]
         allowed = {*SERVERS, "127.0.0.53", "127.0.0.54"}

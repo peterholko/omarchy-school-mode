@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -28,6 +29,7 @@ class Resolver(unittest.TestCase):
         self.other_nm = ""
         self.fail_next_restart = False
         self.resolved_override = ""
+        self.resolved_output = None
         self.integration = dns.Integration(self.config, self.etc, self.run_command)
 
     def run_command(self, *args):
@@ -47,12 +49,18 @@ class Resolver(unittest.TestCase):
                                  {"1.1.1.3", "1.0.0.3", "2606:4700:4700::1113", "2606:4700:4700::1003"})
             return (dns.NM_ON if enabled else "[main]\ndns=systemd-resolved\n") + self.other_nm
         if args[0] == "/usr/bin/nmcli":
+            # nmcli accepts a single flags argument; a second positional flag
+            # is an error, even though the manual writes the synopsis flags….
+            if len(args) > 4:
+                raise ValueError("Error: extra argument 'dns-full'")
             (self.etc / "resolv.conf").write_text(
                 "".join(f"nameserver {ip}\n" for ip in dns.SERVERS) if enabled else self.normal)
         if args[:2] == ("/usr/bin/systemctl", "restart") and self.fail_next_restart:
             self.fail_next_restart = False
             raise ValueError("fixture resolver restart failed")
         if args[0] == "/usr/bin/resolvectl":
+            if self.resolved_output is not None:
+                return self.resolved_output
             return "Global: " + " ".join(dns.SERVERS) + "\nLink 2 (wlan0): " + self.resolved_override + "\n"
         return ""
 
@@ -96,6 +104,36 @@ class Resolver(unittest.TestCase):
         self.integration.remove()
         self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
 
+    def test_wrapped_resolvectl_output_with_server_names_enables_and_restores(self):
+        self.integration.install()
+        self.resolved_output = (
+            "Global: 1.1.1.3#family.cloudflare-dns.com 1.0.0.3#family.cloudflare-dns.com\n"
+            "        2606:4700:4700::1113#family.cloudflare-dns.com\n"
+            "        2606:4700:4700::1003#family.cloudflare-dns.com\n"
+            "Link 2 (wlan0):\nLink 3 (docker0):\n")
+        self.integration.apply(True)
+        self.assertEqual((self.etc / "NetworkManager/conf.d" / dns.NAME).read_text(), dns.NM_ON)
+        self.integration.apply(False)
+        self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
+
+    def test_wrapped_unfiltered_ipv6_remains_a_real_conflict_and_restores(self):
+        self.integration.install()
+        self.resolved_output = (
+            "Global: 1.1.1.3 1.0.0.3 2606:4700:4700::1113 2606:4700:4700::1003\n"
+            "Link 2 (wlan0):\n        2001:db8::53\n")
+        with self.assertRaisesRegex(ValueError, "2001:db8::53") as failure:
+            self.integration.apply(True)
+        self.assertNotIn("restoration also failed", str(failure.exception))
+        self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
+        self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
+
+    def test_command_failures_preserve_the_action_and_stderr(self):
+        failure = subprocess.CalledProcessError(2, ["/usr/bin/nmcli", "general", "reload", "conf", "dns-full"],
+                                                stderr="Error: extra argument 'dns-full'\n")
+        with patch.object(dns.subprocess, "run", side_effect=failure):
+            with self.assertRaisesRegex(ValueError, "extra argument 'dns-full'"):
+                dns.command("/usr/bin/nmcli", "general", "reload", "conf", "dns-full")
+
     def test_existing_global_dns_and_secure_browser_dns_are_not_overwritten(self):
         self.integration.install()
         self.other_nm = "[global-dns-domain-*]\nservers=192.168.1.1\n"
@@ -112,7 +150,7 @@ class Resolver(unittest.TestCase):
     def test_unfiltered_ipv6_or_later_overrides_roll_back(self):
         self.integration.install()
         self.resolved_override = "2001:db8::53"
-        with self.assertRaisesRegex(ValueError, "resolver configuration overrides"):
+        with self.assertRaisesRegex(ValueError, "additional servers: 2001:db8::53"):
             self.integration.apply(True)
         self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
         self.resolved_override = ""
@@ -148,7 +186,8 @@ class Resolver(unittest.TestCase):
         receipt = json.loads(self.integration.receipt.read_text()); receipt["pending"] = True
         self.integration.receipt.write_text(json.dumps(receipt))
         self.integration.apply(False)
-        self.assertIn(("/usr/bin/nmcli", "general", "reload", "conf", "dns-full"), self.calls)
+        self.assertIn(("/usr/bin/nmcli", "general", "reload", "conf"), self.calls)
+        self.assertIn(("/usr/bin/nmcli", "general", "reload", "dns-full"), self.calls)
         self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
 
     def test_default_and_patch_validation(self):

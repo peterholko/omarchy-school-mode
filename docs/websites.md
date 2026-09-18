@@ -50,6 +50,15 @@ Native messaging uses bounded length-prefixed JSON over stdin/stdout. The unpriv
 
 ## Troubleshooting and removal
 
+Version 2.3.0 could misread wrapped `resolvectl dns` output as a conflicting resolver, then fail restoration because it passed two separate reload flags to `nmcli`. Version 2.3.1 (service 4.4.1) fixes both. If that earlier attempt reported **DNS restoration also failed**, turn the Family DNS toggle off, then run these from the child's terminal to reload the restored network configuration:
+
+```bash
+sudo nmcli general reload conf &&
+sudo nmcli general reload dns-full
+```
+
+Then update the plugin and run its `setup --user CHILD_USERNAME --upgrade --omarchy-path "$OMARCHY_PATH"` as described in the README before re-enabling the toggle. The fix keeps the existing configuration files and receipt, so an interrupted restoration can be resumed. Future command failures include the command and its error text; a real DNS mismatch lists the additional or missing resolver addresses. No administrator DNS files need to be deleted to fix the wrapped-output bug.
+
 After updating, run the repository's `setup --user CHILD_USERNAME --upgrade`. Enable Websites in the parent settings, save, and reopen Chrome/Chromium. The local companion is named **School Mode Websites**. `chrome://policy` shows this plugin's `URLBlocklist`, `ExtensionSettings` and extension-managed setting after refresh. `chrome://extensions` shows the installed companion. A policy update may take time on initial installation; the Websites tab remains waiting until a browser acknowledges it.
 
 If a conflict is reported, inspect the named administrator policy file and decide which tool should manage website rules. Do not delete unrelated policies simply to bypass this check. Turning Websites off clears this plugin's policies without changing the other file. If the local installer cannot bind its loopback port, resolve the collision and restart `omarchy-kids-controls.service`.
