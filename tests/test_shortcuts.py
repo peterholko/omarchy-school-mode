@@ -80,6 +80,43 @@ print('ok')
         self.assertEqual(sum(call[0] == "reload" for call in self.calls()), 2)
         self.assertFalse(self.marker.exists())
 
+    def test_capture_shortcuts_open_filtered_menu_and_stop_before_starting(self):
+        capture_log = self.base / "capture.jsonl"
+        self.env["CAPTURE_LOG"] = str(capture_log)
+        for name in ("omarchy-capture-screenrecording", "omarchy-shell"):
+            executable = self.bin / name
+            executable.write_text(f"#!{sys.executable}\n" + '''import json, os, sys
+from pathlib import Path
+name = Path(sys.argv[0]).name
+with open(os.environ['CAPTURE_LOG'], 'a') as stream:
+    stream.write(json.dumps([name, *sys.argv[1:]]) + '\\n')
+sys.exit(int(os.environ.get('CAPTURE_STOP_RC', '1')) if name == 'omarchy-capture-screenrecording' else 0)
+''')
+            executable.chmod(0o755)
+        plugin = "io.github.peterholko.school-mode"
+        for mode in ("school", "free"):
+            self.run_policy("enter", mode)
+            script = [call[1] for call in self.calls() if call[0] == "eval"][-1]
+
+            def run_binding(key, stop_code=1):
+                pattern = r'hl\.bind\("' + re.escape(key) + r'", hl\.dsp\.exec_cmd\(\[\[(.*?)\]\]\)'
+                match = re.search(pattern, script)
+                self.assertIsNotNone(match, key)
+                capture_log.unlink(missing_ok=True)
+                result = subprocess.run([BASH, "-c", match.group(1)],
+                                        env={**self.env, "CAPTURE_STOP_RC": str(stop_code)},
+                                        text=True, capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return [json.loads(line) for line in capture_log.read_text().splitlines()]
+
+            self.assertEqual(run_binding("SUPER + CTRL + C"), [[
+                "omarchy-shell", "shell", "toggle", plugin, '{"menu":"trigger.capture"}']])
+            self.assertEqual(run_binding("ALT + PRINT"), [
+                ["omarchy-capture-screenrecording", "--stop-recording"],
+                ["omarchy-shell", "shell", "toggle", plugin, '{"menu":"trigger.capture.screenrecord"}']])
+            self.assertEqual(run_binding("ALT + PRINT", stop_code=0), [
+                ["omarchy-capture-screenrecording", "--stop-recording"]])
+
     def test_failed_application_clears_marker_for_retry(self):
         self.env["FAIL_EVAL"] = "1"
         self.run_policy("enter", "free", success=False)

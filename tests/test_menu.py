@@ -104,6 +104,46 @@ class MenuTest(unittest.TestCase):
         self.invoke("loading")
         self.assertEqual(self.invoke("inspect")["ids"], [])
 
+    def test_capture_deep_links_preserve_approved_apps_in_both_modes(self):
+        self.load(True)
+        for mode in ("school", "free"):
+            self.invoke(mode)
+            expected_ids = self.invoke("inspect")["ids"]
+            for filename in ("school-menu.jsonc", "free-time-menu.jsonc"):
+                entries = json.loads((ROOT / filename).read_text())
+                for route in entries:
+                    if not route.startswith("trigger.capture"):
+                        continue
+                    for prefix, field in (("route:", "menu"), ("initial-route:", "initialMenu")):
+                        state = self.invoke(prefix + route)
+                        self.assertEqual(json.loads(state["payload"])[field], route)
+                        self.assertEqual(state["ids"], expected_ids)
+                        self.assertNotIn("Discord", state["ids"])
+                        self.assertTrue(state["menuPath"].endswith(f"/{mode if mode == 'school' else 'free-time'}-menu.jsonc"))
+            for route in ("setup", "trigger", "trigger.capture-unrestricted", "install", "learn.community"):
+                state = self.invoke("route:" + route)
+                self.assertEqual(json.loads(state["payload"])["menu"], "apps")
+            self.assertEqual(json.loads(self.invoke("route:style.theme")["payload"])["menu"], "style.theme")
+        self.invoke("disconnect")
+        state = self.invoke("route:trigger.capture.screenrecord")
+        self.assertEqual(json.loads(state["payload"])["menu"], "trigger.capture.screenrecord")
+        self.assertEqual(state["ids"], [])
+
+    def test_capture_menu_is_curated_and_has_no_unrestricted_provider(self):
+        captures = []
+        for filename in ("school-menu.jsonc", "free-time-menu.jsonc"):
+            entries = json.loads((ROOT / filename).read_text())
+            self.assertEqual([item["provider"] for item in entries.values() if "provider" in item], ["apps"])
+            self.assertEqual(entries["trigger.capture"]["parent"], "apps")
+            self.assertTrue(all(key == "apps" or key == "style" or key.startswith("style.")
+                                or key == "trigger.capture" or key.startswith("trigger.capture.") for key in entries))
+            capture = {key: item for key, item in entries.items() if key.startswith("trigger.capture")}
+            self.assertIn("pgrep", capture["trigger.capture.screenrecord.stop"]["when"])
+            self.assertEqual(capture["trigger.capture.screenrecord.webcam"]["when"], "omarchy-hw-webcam")
+            self.assertTrue(all("omarchy.menu" not in item.get("action", "") for item in capture.values()))
+            captures.append(capture)
+        self.assertEqual(captures[0], captures[1])
+
     def test_confirmed_disabled_enrollment_restores_normal_launcher(self):
         self.load(True)
         self.invoke("free")

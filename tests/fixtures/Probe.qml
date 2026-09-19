@@ -66,6 +66,8 @@ Item {
     else if (action === "cwd-shortcut") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"org.gnome.Nautilus","variant":"cwd"}'), commands: Quickshell.detachedCommands})
     else if (action === "invalid-variant") return JSON.stringify({verdict: plugin.item.launchAllowedApp('{"desktopId":"chromium","variant":"shell"}'), commands: Quickshell.detachedCommands})
     else if (action === "community-route") plugin.item.open('{"menu":"learn.community"}')
+    else if (action.indexOf("route:") === 0) plugin.item.open(JSON.stringify({menu: action.substring(6)}))
+    else if (action.indexOf("initial-route:") === 0) plugin.item.open(JSON.stringify({initialMenu: action.substring(14)}))
     else if (action === "disabled") mode.schoolEnabled = false
     else if (action === "loading") { mode.connected = false; mode.schoolEnabled = false; mode.schoolMode = false }
     else if (action === "disconnect") mode.connected = false

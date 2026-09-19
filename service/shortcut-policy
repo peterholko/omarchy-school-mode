@@ -88,6 +88,12 @@ launch_allowed() {
 rebind "SUPER + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"root\"}'" "School / Free Time: Menu"
 rebind "SUPER + ALT + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"apps\"}'" "School / Free Time: Apps"
 
+# The stock capture shortcuts also open omarchy.menu, which is disabled in
+# both child modes. Use our curated capture subtree and preserve stop-first
+# recording behavior without restoring the unrestricted launcher.
+rebind "SUPER + CTRL + C" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"trigger.capture\"}'" "School / Free Time: Capture"
+rebind "ALT + PRINT" "omarchy-capture-screenrecording --stop-recording || omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"trigger.capture.screenrecord\"}'" "School / Free Time: Screenrecording"
+
 # School retains its no-terminal shortcut policy. Free Time restores the
 # original parent maintenance shortcut when the previous layer is reloaded.
 if [[ $MODE == "school" ]]; then unbind "SUPER + RETURN"; fi
@@ -137,7 +143,7 @@ if [[ $MODE == "free" ]]; then
   launch_allowed "SUPER + SHIFT + ALT + K" "Wikipedia" "Wikipedia"
 fi
 
-printf 'version=2\nmode=%s\n' "$MODE" >"$ACTIVE_MARKER"
+printf 'version=3\nmode=%s\n' "$MODE" >"$ACTIVE_MARKER"
 if ! error=$($HYPRCTL_BIN eval "$lua_program" 2>&1); then
   reload_bindings >/dev/null 2>&1 || true
   rm -f -- "$ACTIVE_MARKER"

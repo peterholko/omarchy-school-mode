@@ -67,6 +67,14 @@ The existing browser profile is retained. Free Time restores the approved browse
 
 The desktop helper journals recovery before applying changes and changes only its own `disabledPlugins` entry in `~/.config/omarchy/shell.json`. Other bar and shell settings are preserved. It keeps a first-use backup under `~/.local/state/omarchy-community-school-mode/`. Custom `XDG_CONFIG_HOME` and `XDG_STATE_HOME` are respected by the helper. Desktop consent and launcher restrictions survive logout, shutdown and shell restarts. While school status is loading, the launcher shows no apps and the helper applies the restrictive school shortcuts; window parking waits for confirmed School Mode. The helper checks live compositor bindings and repairs its shortcuts if a later startup or configuration reload replaces them. Run `school-desktop.py disable` before disabling or removing the plugin; this also revokes desktop consent.
 
+### Screenshots and screen recording
+
+**Capture** is available in the approved launcher in both School Mode and Free Time. **Super + Ctrl + C** opens it directly. It includes screenshots, screen recording, text extraction, QR codes and the color picker. Recording supports no audio, desktop audio, microphone audio and a webcam when present, using Omarchy's existing capture tools.
+
+Webcam recording uses the first available camera. It starts the recorder directly because Omarchy's separate multi-camera chooser depends on the unrestricted menu disabled by the child desktop.
+
+**Alt + Print Screen** opens the recording options when nothing is recording; press it again to stop an active recording. **Print Screen** alone still takes a screenshot. Capture stays inside the filtered menu, so it does not expose the unrestricted launcher or change the approved-app lists.
+
 ### Manage enrollment and password
 
 ```bash
@@ -103,7 +111,9 @@ The browser companion and rules are local. No browsing history, visited URLs, ac
 
 ## Update
 
-Version **2.3.3**, with shared service **4.4.3**, makes Family DNS gentler on the laptop's network. A conflict it can see beforehand, such as a VPN's own DNS or Omarchy's Cloudflare/Google DNS choice, is reported with its fix before anything is reloaded. A failure after a reload is retried less and less often instead of every 30 seconds, working Family DNS is checked at startup without restarting the resolver, and lookups try DNS-over-TLS first. Setup now records what it wrote, so later releases can change these files without reporting them as edited. Disabling or removing School Mode restores the desktop with the current helper, and setup warns when the enrolled account can use sudo. The earlier 2.3.x Family DNS fixes are included. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
+Version **2.3.4**, with shared service **4.4.4**, restores Capture and the screen-recording shortcut in both child modes. Those shortcuts now open the filtered menu, and Alt + Print Screen still stops an existing recording first. The desktop helper repairs missing capture bindings after a reload or an upgrade. The previous Family DNS, launcher, timer and lock-screen fixes remain included.
+
+Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes

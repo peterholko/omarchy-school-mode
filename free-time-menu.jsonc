@@ -1,5 +1,16 @@
 {
   "apps": {"label":"Free Time","provider":"apps"},
+  "trigger.capture": {"parent":"apps","icon":"","label":"Capture"},
+  "trigger.capture.screenshot": {"icon":"","label":"Screenshot","action":"omarchy-capture-screenshot"},
+  "trigger.capture.screenrecord.stop": {"icon":"","label":"Stop Screenrecording","when":"pgrep -f '^gpu-screen-recorder'","action":"omarchy-capture-screenrecording --stop-recording"},
+  "trigger.capture.screenrecord": {"icon":"","label":"Screenrecord"},
+  "trigger.capture.text": {"icon":"󰴑","label":"Text","action":"omarchy-capture-text"},
+  "trigger.capture.qr": {"icon":"󰐲","label":"QR Code","action":"omarchy-capture-qr"},
+  "trigger.capture.color": {"icon":"󰃉","label":"Color","action":"pkill hyprpicker || hyprpicker -a"},
+  "trigger.capture.screenrecord.no-audio": {"icon":"","label":"With no audio","action":"omarchy-capture-screenrecording"},
+  "trigger.capture.screenrecord.desktop-audio": {"icon":"","label":"With desktop audio","action":"omarchy-capture-screenrecording --with-desktop-audio"},
+  "trigger.capture.screenrecord.microphone": {"icon":"","label":"With desktop + microphone audio","action":"omarchy-capture-screenrecording --with-desktop-audio --with-microphone-audio"},
+  "trigger.capture.screenrecord.webcam": {"icon":"","label":"With desktop + microphone audio + webcam","when":"omarchy-hw-webcam","action":"omarchy-capture-screenrecording --with-desktop-audio --with-microphone-audio --with-webcam"},
   "style": {"parent":"apps","icon":"","label":"Style","when":"omarchy-cmd-present omarchy-theme-switcher || omarchy-cmd-present omarchy-theme-bg-switcher"},
   "style.theme": {"icon":"󰸌","label":"Theme","when":"omarchy-cmd-present omarchy-theme-switcher","action":"theme=$(omarchy-theme-switcher); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
   "style.background": {"icon":"","label":"Background","when":"omarchy-cmd-present omarchy-theme-bg-switcher","action":"background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""}

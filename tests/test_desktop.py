@@ -40,6 +40,7 @@ class DesktopTest(unittest.TestCase):
         self.dnd = "off"
         self.failure = None
         self.live_shortcuts = False
+        self.capture_shortcuts = True
         original_read = self.desktop.read
 
         def read(path, default=None):
@@ -59,7 +60,9 @@ class DesktopTest(unittest.TestCase):
             raise ValueError("simulated desktop command failure")
         if args == ("hyprctl", "binds"):
             return ("bind\n\tdescription: School / Free Time: Menu\n"
-                    "bind\n\tdescription: School / Free Time: Apps\n") if self.live_shortcuts else "bind\n\tdescription: Omarchy menu\n"
+                    "bind\n\tdescription: School / Free Time: Apps\n"
+                    + ("bind\n\tdescription: School / Free Time: Capture\n"
+                       "bind\n\tdescription: School / Free Time: Screenrecording\n" if self.capture_shortcuts else "")) if self.live_shortcuts else "bind\n\tdescription: Omarchy menu\n"
         if args[:2] == ("omarchy-shell", "notifications"):
             if args[2] == "dndState":
                 return self.dnd
@@ -67,8 +70,9 @@ class DesktopTest(unittest.TestCase):
         if len(args) > 2 and Path(args[1]).name == "shortcut-policy":
             if args[2] == "enter":
                 self.live_shortcuts = True
+                self.capture_shortcuts = True
                 self.marker.parent.mkdir(parents=True, exist_ok=True)
-                self.marker.write_text(f"version=2\nmode={args[3]}\n")
+                self.marker.write_text(f"version=3\nmode={args[3]}\n")
             else:
                 self.live_shortcuts = False
                 self.marker.unlink(missing_ok=True)
@@ -281,6 +285,21 @@ class DesktopTest(unittest.TestCase):
         self.desktop.synchronize()
         self.assertEqual(self.desktop.read(self.desktop.CONFIG), self.original)
         self.assertEqual(self.dnd, "on")
+
+    def test_old_or_partially_reset_capture_shortcuts_are_repaired(self):
+        for mode in ("school", "free"):
+            self.status["mode"] = mode
+            self.desktop.synchronize()
+            before = len(self.calls_for("shortcut-policy", "enter"))
+            self.marker.write_text(f"version=2\nmode={mode}\n")
+            self.desktop.synchronize()
+            self.assertEqual(len(self.calls_for("shortcut-policy", "enter")), before + 1)
+            self.assertIn("version=3", self.marker.read_text())
+            self.capture_shortcuts = False
+            self.desktop.synchronize()
+            self.assertEqual(len(self.calls_for("shortcut-policy", "enter")), before + 2)
+            self.assertTrue(self.capture_shortcuts)
+            self.assertTrue(self.launcher_disabled())
 
     def test_window_startup_failure_does_not_block_app_restrictions(self):
         self.status["mode"] = "school"

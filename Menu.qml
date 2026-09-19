@@ -171,7 +171,9 @@ Loader {
       var payload = JSON.parse(raw)
       if (payload && payload.mode !== "select" && payload.mode !== "input") {
         var route = String(payload.initialMenu || payload.menu || "root")
-        if (route !== "style" && route.indexOf("style.") !== 0) route = "apps"
+        var styleRoute = route === "style" || route.indexOf("style.") === 0
+        var captureRoute = route === "trigger.capture" || route.indexOf("trigger.capture.") === 0
+        if (!styleRoute && !captureRoute) route = "apps"
         if (payload.initialMenu !== undefined) payload.initialMenu = route
         else payload.menu = route
         return JSON.stringify(payload)
