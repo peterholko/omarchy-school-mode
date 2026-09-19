@@ -13,11 +13,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DesktopTest(unittest.TestCase):
+    PAYLOAD = ROOT  # The plugin's own copy, run by Service.qml and the README commands.
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
-        spec = importlib.util.spec_from_file_location("school_desktop_test", ROOT / "school-desktop.py")
+        spec = importlib.util.spec_from_file_location("school_desktop_test", self.PAYLOAD / "school-desktop.py")
         self.desktop = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.desktop)
         self.desktop.STATE = self.base / "state"
@@ -26,7 +28,7 @@ class DesktopTest(unittest.TestCase):
         self.desktop.CONSENT = self.desktop.STATE / "consent.json"
         self.desktop.SOURCE = self.base / "payload"
         self.desktop.SOURCE.mkdir()
-        (self.desktop.SOURCE / "shortcut-policy").write_bytes((ROOT / "shortcut-policy").read_bytes())
+        (self.desktop.SOURCE / "shortcut-policy").write_bytes((self.PAYLOAD / "shortcut-policy").read_bytes())
         self.runtime = self.base / "runtime"
         self.marker = self.runtime / "omarchy-community-school-mode/shortcut-policy.active"
         self.original = {"version": 1, "disabledPlugins": ["unrelated.disabled"],
@@ -291,6 +293,19 @@ class DesktopTest(unittest.TestCase):
         self.desktop.synchronize()
         self.assertEqual(self.dnd, "on")
         self.assertEqual(len(self.calls_for("window-session", "enter")), 2)
+
+
+class InstalledDesktopTest(DesktopTest):
+    """`omarchy-kids-controls disable|remove school` restores with the installed copy.
+
+    It reads the journal the plugin's copy wrote, so both must behave alike.
+    """
+    PAYLOAD = ROOT / "service"
+
+    def test_installed_helpers_match_the_plugin_copies(self):
+        for name in ("school-desktop.py", "shortcut-policy", "window-session"):
+            self.assertEqual((ROOT / "service" / name).read_bytes(), (ROOT / name).read_bytes(),
+                             f"service/{name} is stale; run: cp {name} service/{name}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 """Exercise file installation and upgrades in a temporary tree, with systemctl mocked."""
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from functools import partial
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,20 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'service'))
+
+class Account(unittest.TestCase):
+    def test_setup_warns_when_the_child_account_can_administer_the_laptop(self):
+        spec=importlib.util.spec_from_file_location('account_fixture',ROOT/'service/manage.py')
+        m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+        account=SimpleNamespace(pw_name='child',pw_uid=1000,pw_gid=1000)
+        for groups,warned in (([1000,998],True),([1000],False)):
+            output=io.StringIO()
+            with patch.object(m.pwd,'getpwnam',return_value=account),patch.object(m,'read_json',return_value={}), \
+                    patch.object(m.grp,'getgrnam',return_value=SimpleNamespace(gr_gid=998)), \
+                    patch.object(m.os,'getgrouplist',return_value=groups),redirect_stdout(output):
+                self.assertIs(m.check_account('child'),account)  # A warning, never a refusal.
+            self.assertEqual('child is in the wheel group' in output.getvalue(),warned)
+
 
 class Setup(unittest.TestCase):
     def setUp(self):
@@ -124,7 +139,7 @@ class Setup(unittest.TestCase):
             self.install('pawberry')
             remove.assert_called_once_with()
         self.assertFalse(obsolete.exists())
-        self.assertEqual(m.installed()['version'], '4.4.2')
+        self.assertEqual(m.installed()['version'], '4.4.3')
         self.assertEqual(m.installed()['modules'], ['pawberry', 'school'])
         self.assertEqual((m.CONFIG/'school-mode.json').read_text(), school)
         self.assertNotIn('/var/lib/peterholko-screen-time', m.UNIT.read_text())

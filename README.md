@@ -49,7 +49,7 @@ Only the named account is enrolled. Root owns the password hash, schedules, dead
 
 The installer checks ownership, command collisions and the previous service's file hashes. Unknown files, local modifications or a downgrade stop setup for review. It refuses to enroll an account configured for the original Omarchy Kids backend; it does not adopt that backend's settings or change OS account privileges.
 
-These desktop controls assume the child cannot administer the laptop. An administrator can disable the service. The app menu and shortcut policy are not an application sandbox.
+These desktop controls assume the child cannot administer the laptop. Setup warns when the enrolled account is in the `wheel` group, since sudo bypasses every control here; keep administrator rights on a separate parent account. An administrator can disable the service. The app menu and shortcut policy are not an application sandbox.
 
 ### Enable the approved desktop
 
@@ -79,7 +79,9 @@ sudo omarchy-kids-controls enable school --user CHILD_USERNAME
 
 **Cloudflare Family DNS** is a separate, optional toggle at the top of this tab. Open the parent settings with the controls parent password, choose **Websites**, and flip the toggle. It saves immediately and filters malware and adult-content domains in **both School Mode and Free Time**, for **all accounts on the laptop**. It starts off. Wait for **On for School Mode and Free Time**; applying and error messages appear below the toggle. Turning it off restores the network's usual DNS settings. The selection survives reboots and network changes.
 
-The resolver uses [Cloudflare's malware and adult-content addresses](https://developers.cloudflare.com/1.1.1.1/ip-addresses/): `1.1.1.3`, `1.0.0.3`, `2606:4700:4700::1113` and `2606:4700:4700::1003`. Chrome and Chromium use the system resolver while this toggle is on. Apps with their own DNS, proxies or VPNs can bypass system DNS; some private networks and captive portals may require a parent to turn this off temporarily. DNS lookups go to Cloudflare while enabled.
+If Omarchy's own DNS setting is Cloudflare, Google or Custom, switch it to DHCP first under **Setup → Network → DNS**, or run `omarchy dns DHCP`. Family DNS reports that choice instead of replacing it. A VPN or other tool that gives an interface its own DNS servers is reported the same way, before any network setting changes.
+
+The resolver uses [Cloudflare's malware and adult-content addresses](https://developers.cloudflare.com/1.1.1.1/ip-addresses/): `1.1.1.3`, `1.0.0.3`, `2606:4700:4700::1113` and `2606:4700:4700::1003`, trying DNS-over-TLS first. Chrome and Chromium use the system resolver while this toggle is on. Apps with their own DNS, proxies or VPNs can bypass system DNS; some private networks and captive portals may require a parent to turn this off temporarily. DNS lookups go to Cloudflare while enabled.
 
 ### Selected websites during School Mode
 
@@ -101,7 +103,7 @@ The browser companion and rules are local. No browsing history, visited URLs, ac
 
 ## Update
 
-Version **2.3.2**, with shared service **4.4.2**, fixes activation when systemd-resolved retains the router's DNS on a NetworkManager connection. Family DNS clears those retained server lists while enabled; turning it off restores each connection's current DNS. The earlier wrapped IPv6 and restoration fixes are included. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
+Version **2.3.3**, with shared service **4.4.3**, makes Family DNS gentler on the laptop's network. A conflict it can see beforehand, such as a VPN's own DNS or Omarchy's Cloudflare/Google DNS choice, is reported with its fix before anything is reloaded. A failure after a reload is retried less and less often instead of every 30 seconds, working Family DNS is checked at startup without restarting the resolver, and lookups try DNS-over-TLS first. Setup now records what it wrote, so later releases can change these files without reporting them as edited. Disabling or removing School Mode restores the desktop with the current helper, and setup warns when the enrolled account can use sudo. The earlier 2.3.x Family DNS fixes are included. Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
 
 ```bash
 omarchy plugin update io.github.peterholko.school-mode --yes

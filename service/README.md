@@ -1,4 +1,4 @@
-# Shared controls service 4.4.2
+# Shared controls service 4.4.3
 
 This payload is shipped by the standalone School / Free Time plugin. It upgrades the 4.0.0 practice-only service used by Pawberry Pet Hotel, Number Grove and Paw Post without changing their game protocols, completed work, limits or collections. Game endpoints still return zero time and cannot register or enable rewards.
 

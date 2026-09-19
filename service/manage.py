@@ -1,6 +1,7 @@
 """Install and manage the reviewed local controls service. Run via sudo."""
 import argparse
 import getpass
+import grp
 import hashlib
 import json
 import os
@@ -95,10 +96,23 @@ def set_parent_password():
     write_json(PASSWORD_PATH, record)
 
 
+def administers(account):
+    """Whether Omarchy's stock sudo rule for the wheel group covers this account."""
+    try:
+        wheel = grp.getgrnam('wheel').gr_gid
+    except KeyError:
+        return False
+    return wheel in os.getgrouplist(account.pw_name, account.pw_gid)
+
+
 def check_account(name):
     account = pwd.getpwnam(name)
     if not 1000 <= account.pw_uid < 65534:
         raise ValueError('choose a regular local account')
+    if administers(account):
+        # Enrollment still works, and may be what a parent testing this wants.
+        print(f'Warning: {name} is in the wheel group and can use sudo. School Mode, Family DNS and the parent '
+              'password only hold for an account without administrator rights; keep sudo on a separate parent account.')
     # Running both backends against one account would enforce two unrelated
     # budgets. Keep existing Kids installations out of this standalone path.
     for file in ('screen-time.json', 'school-mode.json', 'pawberry.json'):

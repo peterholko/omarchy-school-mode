@@ -1,16 +1,13 @@
 #!/bin/bash
 
-# School mode's shortcut layer (shell/plugins/school-mode), after elgevan's
-# omarchy-kids-menu, cut down for a child install: while school mode is on,
-# the shortcuts for the apps school mode does not show are unbound and the
-# menu shortcuts open this plugin's filtered menu. The browser keys are left
-# as they are: school mode uses the one browser profile (Peter, 2026-09-03). `exit` reloads the real configuration, so nothing
-# here outlives the mode. A marker under the runtime directory says the layer
-# is up, so a shell that restarts rebuilds it from the real bindings.
+# The child shortcut layer stays active in both modes. Standard app keys
+# route through the current approved list; work, social and AI keys stay off.
+# Free Time keeps Super+Return available for parent maintenance, as in the
+# original child profile. `exit` restores the user's actual configuration.
 
 set -Eeuo pipefail
 
-PLUGIN_ID=io.github.peterholko.screen-time
+PLUGIN_ID=io.github.peterholko.school-mode
 HYPRCTL_BIN=${OMARCHY_SCHOOL_HYPRCTL:-hyprctl}
 RUNTIME_ROOT=${XDG_RUNTIME_DIR:?Run this command in the Omarchy desktop session}
 STATE_DIR=$RUNTIME_ROOT/omarchy-community-school-mode
@@ -18,7 +15,7 @@ ACTIVE_MARKER=$STATE_DIR/shortcut-policy.active
 LOCK_FILE=$STATE_DIR/shortcut-policy.lock
 
 usage() {
-  echo "Usage: shortcut-policy enter | exit | status" >&2
+  echo "Usage: shortcut-policy enter [school|free] | exit | status" >&2
   exit 2
 }
 
@@ -61,7 +58,10 @@ case ${1:-} in
     json_result exit true 0 "Could not restore Hyprland bindings: $error"
     exit 1
     ;;
-  enter) ;;
+  enter)
+    MODE=${2:-school}
+    [[ $MODE == "school" || $MODE == "free" ]] || usage
+    ;;
   *) usage ;;
 esac
 
@@ -80,13 +80,18 @@ changed=0
 append_lua() { printf -v lua_program '%s%s\n' "$lua_program" "$1"; changed=$((changed + 1)); }
 unbind() { append_lua "hl.unbind(\"$1\")"; }
 rebind() { append_lua "hl.unbind(\"$1\")"; append_lua "hl.bind(\"$1\", hl.dsp.exec_cmd([[$2]]), { description = \"$3\" })"; }
+launch_allowed() {
+  rebind "$1" "omarchy-shell shell call $PLUGIN_ID launchAllowedApp '{\"desktopId\":\"$2\",\"name\":\"$3\",\"variant\":\"${4:-}\"}'" "Approved apps: $3"
+}
 
 # The menu shortcuts open the filtered menu while the stock one is off.
-rebind "SUPER + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"root\"}'" "School mode: Menu"
-rebind "SUPER + ALT + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"apps\"}'" "School mode: Apps"
+rebind "SUPER + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"root\"}'" "School / Free Time: Menu"
+rebind "SUPER + ALT + SPACE" "omarchy-shell shell toggle $PLUGIN_ID '{\"menu\":\"apps\"}'" "School / Free Time: Apps"
 
-# Use the filtered menu to launch apps during school mode.
-unbind "SUPER + RETURN"
+# School retains its no-terminal shortcut policy. Free Time restores the
+# original parent maintenance shortcut when the previous layer is reloaded.
+if [[ $MODE == "school" ]]; then unbind "SUPER + RETURN"; fi
+unbind "SUPER + SHIFT + RETURN"
 unbind "SUPER + SHIFT + F"
 unbind "SUPER + ALT + SHIFT + F"
 unbind "SUPER + SHIFT + B"
@@ -113,12 +118,30 @@ unbind "SUPER + SHIFT + ALT + G"
 unbind "SUPER + SHIFT + ALT + X"
 unbind "SUPER + SHIFT + CTRL + G"
 unbind "SUPER + SHIFT + SLASH"
+unbind "SUPER + SHIFT + K"
+unbind "SUPER + SHIFT + ALT + K"
 
-printf 'version=1\n' >"$ACTIVE_MARKER"
+if [[ $MODE == "free" ]]; then
+  launch_allowed "SUPER + SHIFT + RETURN" "chromium" "Chromium"
+  launch_allowed "SUPER + SHIFT + B" "chromium" "Chromium"
+  launch_allowed "SUPER + SHIFT + ALT + B" "chromium" "Chromium (private)" "private"
+  launch_allowed "SUPER + SHIFT + F" "org.gnome.Nautilus" "Files"
+  launch_allowed "SUPER + ALT + SHIFT + F" "org.gnome.Nautilus" "Files (current directory)" "cwd"
+  launch_allowed "SUPER + SHIFT + N" "omawrite" "Omawrite"
+  launch_allowed "SUPER + SHIFT + W" "omawrite" "Omawrite"
+  launch_allowed "SUPER + SHIFT + O" "obsidian" "Obsidian"
+  launch_allowed "SUPER + SHIFT + M" "cliamp" "Cliamp"
+  launch_allowed "SUPER + SHIFT + ALT + M" "cliamp" "Cliamp"
+  launch_allowed "SUPER + SHIFT + S" "Google Maps" "Google Maps"
+  launch_allowed "SUPER + SHIFT + K" "Khan Academy" "Khan Academy"
+  launch_allowed "SUPER + SHIFT + ALT + K" "Wikipedia" "Wikipedia"
+fi
+
+printf 'version=2\nmode=%s\n' "$MODE" >"$ACTIVE_MARKER"
 if ! error=$($HYPRCTL_BIN eval "$lua_program" 2>&1); then
   reload_bindings >/dev/null 2>&1 || true
   rm -f -- "$ACTIVE_MARKER"
-  json_result enter false "$changed" "Could not apply the school-mode shortcuts: $error"
+  json_result enter false "$changed" "Could not apply the approved-app shortcuts: $error"
   exit 1
 fi
 json_result enter true "$changed"

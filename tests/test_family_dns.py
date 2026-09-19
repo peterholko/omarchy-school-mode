@@ -28,7 +28,9 @@ class Resolver(unittest.TestCase):
         self.calls = []
         self.other_nm = ""
         self.fail_next_restart = False
+        self.inactive = False
         self.resolved_override = ""
+        self.global_override = ""
         self.resolved_output = None
         self.link_names = {2: "wlan0"}
         self.normal_link_dns = {2: ["192.168.1.1"]}
@@ -39,8 +41,12 @@ class Resolver(unittest.TestCase):
 
     def run_command(self, *args):
         self.calls.append(args)
-        enabled = (self.etc / "NetworkManager/conf.d" / dns.NAME).read_text() == dns.NM_ON
+        written = (self.etc / "NetworkManager/conf.d" / dns.NAME).read_text()
+        enabled = "[global-dns-domain-*]" in written
         if args[:2] == ("/usr/bin/systemctl", "is-active"):
+            if self.inactive:
+                # Exit status 3 with both states on stdout and nothing on stderr.
+                raise ValueError("Family DNS command failed (/usr/bin/systemctl is-active): inactive inactive")
             return "active\nactive\n"
         if args[0] == "/usr/bin/NetworkManager":
             if enabled:
@@ -52,7 +58,7 @@ class Resolver(unittest.TestCase):
                              for value in parsed["global-dns-domain-*"]["servers"].split(",")]
                 self.assertEqual({str(ip) for ip in addresses},
                                  {"1.1.1.3", "1.0.0.3", "2606:4700:4700::1113", "2606:4700:4700::1003"})
-            return (dns.NM_ON if enabled else "[main]\ndns=systemd-resolved\n") + self.other_nm
+            return (written if enabled else "[main]\ndns=systemd-resolved\n") + self.other_nm
         if args[:3] == ("/usr/bin/nmcli", "--get-values", "GENERAL.NM-MANAGED"):
             self.assertEqual(args[3:5], ("device", "show"))
             return "yes\n" if args[5] in self.nm_managed else "no\n"
@@ -83,7 +89,9 @@ class Resolver(unittest.TestCase):
             if self.resolved_output is not None:
                 return self.resolved_output
             # Like resolved, retain per-link DNS across a service restart.
-            result = "Global: " + (" ".join(dns.SERVERS) if enabled else "") + "\n"
+            # A resolved drop-in sorted after ours keeps its server in the global
+            # list. Nothing shows that until Family DNS has been written.
+            result = "Global: " + (" ".join([*dns.SERVERS, self.global_override]).strip() if enabled else "") + "\n"
             for index, servers in self.link_dns.items():
                 result += f"Link {index} ({self.link_names[index]}): " + "\n        ".join(servers) + "\n"
             return result + "Link 99 (external0): " + self.resolved_override + "\n"
@@ -135,10 +143,32 @@ class Resolver(unittest.TestCase):
     def test_unmanaged_router_is_not_silently_allowed_or_cleared(self):
         self.integration.install()
         self.nm_managed.clear()
-        with self.assertRaisesRegex(ValueError, "additional servers: 192.168.1.1"):
+        with self.assertRaisesRegex(ValueError, r"wlan0 uses its own DNS \(192\.168\.1\.1\), set outside NetworkManager") as failure:
             self.integration.apply(True)
         self.assertEqual(self.link_dns[2], ["192.168.1.1"])
         self.assertFalse(any(call[0] == "/usr/bin/resolvectl" and len(call) == 4 for call in self.calls))
+        self.assert_dns_untouched(failure.exception)
+
+    def assert_dns_untouched(self, error):
+        """A conflict visible beforehand must not cost a resolver restart."""
+        self.assertNotIsInstance(error, dns.Disrupted)
+        self.assertFalse([call for call in self.calls if call[:2] == ("/usr/bin/systemctl", "restart")
+                          or call[:3] == ("/usr/bin/nmcli", "general", "reload")])
+        for path, values in dns.files(self.etc).items():
+            self.assertEqual(path.read_text(), values[0])
+        self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
+
+    def test_another_tools_link_and_delegate_dns_are_reported_before_any_reload(self):
+        self.integration.install()
+        self.resolved_override = "100.100.100.100"
+        with self.assertRaisesRegex(ValueError, r"external0 uses its own DNS \(100\.100\.100\.100\)") as failure:
+            self.integration.apply(True)
+        self.assert_dns_untouched(failure.exception)
+        self.assertEqual(self.link_dns[2], ["192.168.1.1"], "The home router's DNS must not be cleared for nothing")
+        self.resolved_output = "Global:\nLink 2 (wlan0): 192.168.1.1\nDelegate corp: 10.0.0.53\n"
+        with self.assertRaisesRegex(ValueError, r"Delegate corp uses its own DNS \(10\.0\.0\.53\)") as failure:
+            self.integration.apply(True)
+        self.assert_dns_untouched(failure.exception)
 
     def test_failed_clear_restores_dns_on_previously_cleared_links(self):
         self.integration.install()
@@ -202,6 +232,10 @@ class Resolver(unittest.TestCase):
         with patch.object(dns.subprocess, "run", side_effect=failure):
             with self.assertRaisesRegex(ValueError, "extra argument 'dns-full'"):
                 dns.command("/usr/bin/nmcli", "general", "reload", "conf", "dns-full")
+        silent = subprocess.CalledProcessError(3, ["/usr/bin/systemctl", "is-active"], output="inactive\ninactive\n", stderr="")
+        with patch.object(dns.subprocess, "run", side_effect=silent):
+            with self.assertRaisesRegex(ValueError, "inactive inactive"):
+                dns.command("/usr/bin/systemctl", "is-active", "NetworkManager.service")
 
     def test_existing_global_dns_and_secure_browser_dns_are_not_overwritten(self):
         self.integration.install()
@@ -218,13 +252,13 @@ class Resolver(unittest.TestCase):
 
     def test_unfiltered_ipv6_or_later_overrides_roll_back(self):
         self.integration.install()
-        self.resolved_override = "2001:db8::53"
-        with self.assertRaisesRegex(ValueError, "additional servers: 2001:db8::53"):
+        self.global_override = "2001:db8::53"
+        with self.assertRaisesRegex(dns.Disrupted, "additional servers: 2001:db8::53"):
             self.integration.apply(True)
         self.assertIn(("/usr/bin/resolvectl", "dns", "2", ""), self.calls)
         self.assertEqual(self.link_dns[2], ["192.168.1.1"], "Failure must restore the cleared router DNS")
         self.assertEqual((self.etc / "resolv.conf").read_text(), self.normal)
-        self.resolved_override = ""
+        self.global_override = ""
         self.other_nm = "[main]\ndns=none\n"
         with self.assertRaisesRegex(ValueError, "Another DNS manager"):
             self.integration.apply(True)
@@ -259,6 +293,143 @@ class Resolver(unittest.TestCase):
         self.integration.apply(False)
         self.assertIn(("/usr/bin/nmcli", "general", "reload", "conf"), self.calls)
         self.assertIn(("/usr/bin/nmcli", "general", "reload", "dns-full"), self.calls)
+        self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
+
+    def test_setup_upgrades_service_4_4_2_files_while_family_dns_stays_on(self):
+        self.integration.install()
+        self.integration.apply(True)
+        # As written by 4.4.0-4.4.2: a path-only receipt and no DNS-over-TLS line.
+        resolved = self.etc / "systemd/resolved.conf.d" / dns.NAME
+        resolved.write_text(dns.RESOLVED_INHERIT)
+        self.integration.receipt.write_text(json.dumps(
+            {"identity": dns.IDENTITY, "files": [str(p) for p in dns.files(self.etc)], "pending": False}) + "\n")
+        self.integration.receipt.chmod(0o600)
+        self.calls.clear()
+        self.integration.install()
+        self.assertFalse(self.calls, "Setup itself never reloads DNS")
+        self.assertEqual(resolved.read_text(), dns.RESOLVED_INHERIT, "Upgrade leaves an enabled resolver enabled")
+        receipt = json.loads(self.integration.receipt.read_text())
+        self.assertEqual(receipt["files"][str(resolved)], [dns.digest(dns.RESOLVED_INHERIT)])
+        self.assertTrue(self.integration.ready())
+        self.integration.apply(True)  # The restarted service adopts this release's text.
+        self.assertEqual(resolved.read_text(), dns.RESOLVED_ON)
+        self.assertEqual(self.link_dns[2], [])
+        self.integration.remove()
+        self.assertFalse(any(p.exists() for p in dns.files(self.etc)))
+        self.assertEqual(self.link_dns[2], ["192.168.1.1"])
+
+    def test_a_later_release_can_change_its_texts_and_files_without_blocking_setup(self):
+        self.integration.install()
+        self.integration.apply(True)
+        chrome = self.etc / "opt/chrome/policies/managed" / dns.POLICY_NAME
+        brave = self.etc / "brave/policies/managed" / dns.POLICY_NAME
+        current = dns.files
+
+        def later(etc):
+            result = {path: (off + "# later\n" if path.suffix == ".conf" else off, on + ("# later\n" if path.suffix == ".conf" else ""), ())
+                      for path, (off, on, _) in current(etc).items() if path != chrome}
+            return {**result, brave: (dns.POLICY_OFF, dns.POLICY_ON, ())}
+
+        with patch.object(dns, "files", later):
+            upgraded = dns.Integration(self.config, self.etc, self.run_command)
+            self.calls.clear()
+            upgraded.install()
+            self.assertFalse(self.calls)
+            self.assertFalse(chrome.exists(), "A file this release no longer owns is released")
+            self.assertEqual(brave.read_text(), dns.POLICY_OFF)
+            self.assertEqual(set(json.loads(upgraded.receipt.read_text())["files"]), {str(p) for p in later(self.etc)})
+            self.assertEqual((self.etc / "NetworkManager/conf.d" / dns.NAME).read_text(), dns.NM_ON)
+            upgraded.apply(True)
+            for path, values in later(self.etc).items():
+                self.assertEqual(path.read_text(), values[1])
+            upgraded.install()  # Rerunning setup stays possible afterwards.
+            # Ownership still means unedited: digests never adopt someone else's text.
+            brave.write_text('{"DnsOverHttpsMode":"secure"}')
+            with self.assertRaisesRegex(ValueError, "edited"):
+                upgraded.install()
+            brave.write_text(dns.POLICY_ON)
+            upgraded.remove()
+            self.assertFalse(any(p.exists() for p in later(self.etc)))
+
+    def test_receipts_naming_foreign_paths_are_refused(self):
+        self.integration.install()
+        for paths in ([str(self.root / "elsewhere" / dns.NAME)], [str(self.etc / "NetworkManager/NetworkManager.conf")],
+                      [str(self.etc / "x/../../outside" / dns.NAME)], {str(self.etc / dns.NAME): "digest"}, "files", None):
+            self.integration.receipt.write_text(json.dumps({"identity": dns.IDENTITY, "files": paths, "pending": False}))
+            self.integration.receipt.chmod(0o600)
+            with self.assertRaisesRegex(ValueError, "Unknown Family DNS installation receipt"):
+                self.integration.plan()
+
+    def test_working_family_dns_is_rechecked_without_restarting_the_resolver(self):
+        self.integration.install()
+        self.integration.apply(True)
+        disruptive = lambda: [call for call in self.calls if call[:2] == ("/usr/bin/systemctl", "restart")
+                              or call[:3] == ("/usr/bin/nmcli", "general", "reload") or (call[0] == "/usr/bin/resolvectl" and len(call) == 4)]
+        self.calls.clear()
+        self.integration.apply(True)  # Every boot and service restart.
+        self.assertEqual(disruptive(), [])
+        self.assertTrue(self.calls, "Its configuration is still verified")
+        # DNS that returned to a link, or an interrupted change, gets the full treatment.
+        self.link_dns[2] = ["192.168.1.1"]
+        self.integration.apply(True)
+        self.assertEqual(self.link_dns[2], [])
+        self.assertIn(("/usr/bin/systemctl", "restart", "systemd-resolved.service"), disruptive())
+        receipt = json.loads(self.integration.receipt.read_text()); receipt["pending"] = True
+        self.integration.receipt.write_text(json.dumps(receipt)); self.calls.clear()
+        self.integration.apply(True)
+        self.assertIn(("/usr/bin/systemctl", "restart", "systemd-resolved.service"), disruptive())
+        self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
+
+    def test_omarchys_own_dns_choice_is_named_with_its_fix(self):
+        self.integration.install()
+        self.other_nm = "[global-dns]\n[global-dns-domain-*]\nservers=1.1.1.1,1.0.0.1\n"
+        (self.etc / "NetworkManager/conf.d/20-omarchy-dns.conf").write_text(self.other_nm)
+        with self.assertRaisesRegex(ValueError, "omarchy dns DHCP") as failure:
+            self.integration.apply(True)
+        self.assert_dns_untouched(failure.exception)
+
+    def test_stopped_services_and_unreadable_policies_are_explained(self):
+        self.integration.install()
+        self.inactive = True
+        with self.assertRaisesRegex(ValueError, "needs NetworkManager and systemd-resolved running") as failure:
+            self.integration.apply(True)
+        self.assert_dns_untouched(failure.exception)
+        self.inactive = False
+        other = self.etc / "chromium/policies/managed/broken.json"
+        other.write_text("{not json")
+        with self.assertRaisesRegex(ValueError, "Cannot inspect the browser policy .*broken.json") as failure:
+            self.integration.apply(True)
+        self.assert_dns_untouched(failure.exception)
+        self.assertEqual(other.read_text(), "{not json")
+
+    def test_dns_over_tls_is_opportunistic_unless_an_administrator_requires_it(self):
+        self.integration.install()
+        resolved = self.etc / "systemd/resolved.conf.d" / dns.NAME
+        main = self.etc / "systemd/resolved.conf"
+        main.write_text("[Resolve]\nDNSOverTLS=no\n")  # Omarchy's DHCP choice.
+        self.integration.apply(True)
+        self.assertEqual(resolved.read_text(), dns.RESOLVED_ON)
+        self.assertIn("DNSOverTLS=opportunistic\n", resolved.read_text())
+        self.integration.apply(False)
+        self.assertEqual(main.read_text(), "[Resolve]\nDNSOverTLS=no\n")
+        (resolved.parent / "50-administrator.conf").write_text("[Resolve]\n DNSOverTLS = yes\n")
+        self.integration.apply(True)
+        self.assertNotIn("DNSOverTLS", resolved.read_text(), "A required TLS setting is inherited, never relaxed")
+        self.calls.clear()
+        self.integration.apply(True)
+        self.assertNotIn(("/usr/bin/systemctl", "restart", "systemd-resolved.service"), self.calls)
+        self.integration.remove()
+
+    def test_an_unexpected_failure_still_restores_dns(self):
+        self.integration.install()
+        original = self.integration.verify
+        self.integration.verify = lambda: {}["missing"]
+        with self.assertRaisesRegex(dns.Disrupted, "KeyError"):
+            self.integration.apply(True)
+        self.integration.verify = original
+        for path, values in dns.files(self.etc).items():
+            self.assertEqual(path.read_text(), values[0])
+        self.assertEqual(self.link_dns[2], ["192.168.1.1"])
         self.assertFalse(json.loads(self.integration.receipt.read_text())["pending"])
 
     def test_default_and_patch_validation(self):
@@ -348,6 +519,64 @@ class Service(unittest.TestCase):
         self.daemon.dispatch(0, {"scope": "school", "cmd": "users.set", "user": "linnea", "enabled": False})
         self.wait(manager)
         self.assertEqual(calls, [True, True, False])
+
+    def test_failures_after_a_reload_back_off_and_a_new_choice_is_tried_at_once(self):
+        manager, calls = self.prepare()
+        clock = [1000.0]
+        manager.monotonic = lambda: clock[0]
+        outcome = [dns.Disrupted("fixture resolver mismatch")]
+        def failing(enabled):
+            calls.append(enabled)
+            if enabled:
+                raise outcome[0]
+        manager.integration.apply.side_effect = failing
+        def after(seconds):
+            clock[0] += seconds
+            self.daemon.refresh(self.now); self.wait(manager)
+            return calls.count(True)
+        self.parent(cmd="config.patch", patch={"family_dns_enabled": True}); self.wait(manager)
+        self.assertEqual(calls.count(True), 1)
+        self.assertEqual(manager.status()["error"], "fixture resolver mismatch")
+        self.assertEqual(after(29), 1)
+        self.assertEqual(after(2), 2, "The first retry keeps the documented 30 seconds")
+        self.assertIn("Trying again in 1 min; switch the toggle off and on", manager.status()["error"])
+        self.assertEqual(after(45), 2, "Each reload restarts the resolver twice; do not repeat it twice a minute")
+        self.assertEqual(after(20), 3)
+        self.assertEqual(after(119), 3)
+        self.assertEqual(after(2), 4)
+        for _ in range(12):
+            after(dns.RETRY_LIMIT + 1)
+        self.assertIn("Trying again in 60 min", manager.status()["error"])
+        # A conflict found before any change stays cheap, so it keeps the short interval.
+        outcome[0] = ValueError("fixture conflict found beforehand")
+        attempts = after(dns.RETRY_LIMIT + 1)
+        self.assertEqual(manager.status()["error"], "fixture conflict found beforehand")
+        self.assertEqual(after(31), attempts + 1)
+        # Off and on again is the parent's retry button.
+        outcome[0] = dns.Disrupted("fixture resolver mismatch")
+        after(31)
+        self.parent(cmd="config.patch", patch={"family_dns_enabled": False}); self.wait(manager)
+        self.assertEqual(manager.status()["error"], "")
+        attempts = calls.count(True)
+        self.parent(cmd="config.patch", patch={"family_dns_enabled": True}); self.wait(manager)
+        self.assertEqual(calls.count(True), attempts + 1)
+        self.assertEqual(manager.status()["error"], "fixture resolver mismatch")
+
+    def test_an_unexpected_worker_failure_is_published_and_retried(self):
+        manager, calls = self.prepare()
+        clock = [1000.0]
+        manager.monotonic = lambda: clock[0]
+        def broken(enabled):
+            calls.append(enabled)
+            raise KeyError("fixture bug")
+        manager.integration.apply.side_effect = broken
+        self.parent(cmd="config.patch", patch={"family_dns_enabled": True}); self.wait(manager)
+        status = self.request({"cmd": "status"})["websites"]["familyDns"]
+        self.assertFalse(status["active"]); self.assertFalse(status["applying"])
+        self.assertIn("stopped unexpectedly (KeyError", status["error"])
+        clock[0] += 31
+        self.daemon.refresh(self.now); self.wait(manager)
+        self.assertEqual(calls, [True, True])
 
 
 if __name__ == "__main__":
