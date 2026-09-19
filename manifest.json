@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.peterholko.school-mode",
   "name": "School / Free Time",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "author": "Peter Holko",
   "description": "Approved apps, school schedules, website restrictions, optional Family DNS and parent-granted Free Time with a countdown.",
   "kinds": [

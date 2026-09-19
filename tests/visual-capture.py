@@ -1,4 +1,4 @@
-"""Exercise the plugin's Capture menu with the installed Omarchy menu renderer.
+"""Exercise Capture and Keybindings with the installed Omarchy menu renderer.
 
 Requires PySide6. Only window hosting, file reads and process/guard responses
 are adapted for portable Qt; no recording, desktop command or service starts.
@@ -244,6 +244,36 @@ for mode in ('school', 'free'):
     approved = js('probe.rendered.shell.appLibrary.sortedEntries("").map(function(row) { return row.entry.id })')
     assert {'chromium', 'org.gnome.Nautilus'} <= set(approved)
     assert not {'Discord', 'discord', 'steam'} & set(approved)
+    open_menu('apps')
+    capture(mode + '-launcher.png')
+    click_label('Keybindings')
+    assert js('probe.commands.slice(-1)[0]') == ['bash', '-lc',
+        'omarchy-shell shell call io.github.peterholko.school-mode showKeybindings ""']
+    assert js('probe.plugin.showKeybindings()') == 'ok'
+    assert js('probe.commands.slice(-1)[0]') == ['bash', str(ROOT / 'keybindings')]
+    # The helper's payload contract is exercised by test_keybindings.py.
+    payload = {'mode': 'select', 'prompt': 'Keybindings', 'width': 800, 'maxHeight': 500,
+               'options': ['SUPER + K → School / Free Time: Keybindings',
+                           'SUPER + CTRL + C → School / Free Time: Capture',
+                           'ALT + PRINT → School / Free Time: Screenrecording',
+                           'PRINT → Screenshot']}
+    js('probe.plugin.open(' + json.dumps(json.dumps(payload)) + ')')
+    capture(mode + '-keybindings.png')
+    assert not js('probe.rendered.requestActive')
+    count = js('probe.commands.length')
+    for letter in 'capture':
+        QTest.keyClick(window, getattr(Qt, 'Key_' + letter.upper()))
+    QTest.qWait(60)
+    assert js('probe.rendered.filterText') == 'capture'
+    capture(mode + '-keybindings-search.png')
+    QTest.keyClick(window, Qt.Key_Return)
+    assert not js('probe.rendered.opened')
+    assert js('probe.commands.length') == count
+    js('probe.plugin.open(' + json.dumps(json.dumps(payload)) + ')')
+    QTest.qWait(40)
+    QTest.keyClick(window, Qt.Key_Escape)
+    assert not js('probe.rendered.opened')
+    assert js('probe.commands.length') == count
 
 fixture.webcam = True
 fixture.recording = True
@@ -265,4 +295,4 @@ open_menu('trigger.capture.screenrecord')
 capture('recording-compact.png')
 probe.deleteLater()
 QTest.qWait(20)
-print('PASS: actual menu rendering, capture navigation/actions, mode transitions and recording/webcam guards. Inspect captures in ' + str(base))
+print('PASS: actual menu rendering, capture actions, keybindings search/selection/cancel, mode transitions and recording/webcam guards. Inspect captures in ' + str(base))

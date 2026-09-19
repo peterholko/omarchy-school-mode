@@ -75,6 +75,10 @@ Webcam recording uses the first available camera. It starts the recorder directl
 
 **Alt + Print Screen** opens the recording options when nothing is recording; press it again to stop an active recording. **Print Screen** alone still takes a screenshot. Capture stays inside the filtered menu, so it does not expose the unrestricted launcher or change the approved-app lists.
 
+### Keybindings
+
+Open **Keybindings** in the app launcher, or press **Super + K**, in either School Mode or Free Time. Type to search Omarchy's current shortcut list. This is a reference viewer: selecting a row closes it; use the displayed keys to perform that action. The list is refreshed when opened, including shortcuts changed by the active mode.
+
 ### Manage enrollment and password
 
 ```bash
@@ -111,7 +115,7 @@ The browser companion and rules are local. No browsing history, visited URLs, ac
 
 ## Update
 
-Version **2.3.4**, with shared service **4.4.4**, restores Capture and the screen-recording shortcut in both child modes. Those shortcuts now open the filtered menu, and Alt + Print Screen still stops an existing recording first. The desktop helper repairs missing capture bindings after a reload or an upgrade. The previous Family DNS, launcher, timer and lock-screen fixes remain included.
+Version **2.3.5**, with shared service **4.4.5**, restores Keybindings in the app launcher and **Super + K** in both child modes. The searchable reference uses Omarchy's current shortcut list inside the filtered menu. The desktop helper repairs the Keybindings shortcut after a reload or an upgrade. The previous Capture, Family DNS, launcher, timer and lock-screen fixes remain included.
 
 Update both the plugin and its installed service from the child's unlocked desktop terminal. Replace `CHILD_USERNAME` with the local account, such as `linnea`:
 
@@ -210,6 +214,7 @@ python3 -m unittest discover -s tests -v
 node --test tests/websites.test.cjs
 python3 tests/visual.py --omarchy "$OMARCHY_PATH" --output /tmp/school-mode-visual-check
 python3 tests/visual-lock.py --omarchy "$OMARCHY_PATH" --output /tmp/school-lock-visual-check
+python3 tests/visual-capture.py --omarchy "$OMARCHY_PATH" --output /tmp/school-menu-visual-check
 ```
 
 Local tests require PySide6, Bash, jq, OpenSSL and Node.js. They exercise policy deadlines, schedule/reboot ordering, parent authentication, helper UID handling, temporary PAM/browser installation and removal, signed packages, native messaging, service upgrades, game progress, launcher filtering, status permissions and desktop recovery. The visual check uses the real plugin QML and Omarchy controls with portable window and process adapters; inspect its screenshots. No test runs a real lock, systemd installation, GitHub Actions or an ISO. An optional isolated Chromium check is described in [docs/websites.md](docs/websites.md).

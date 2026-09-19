@@ -139,7 +139,7 @@ class Setup(unittest.TestCase):
             self.install('pawberry')
             remove.assert_called_once_with()
         self.assertFalse(obsolete.exists())
-        self.assertEqual(m.installed()['version'], '4.4.4')
+        self.assertEqual(m.installed()['version'], '4.4.5')
         self.assertEqual(m.installed()['modules'], ['pawberry', 'school'])
         self.assertEqual((m.CONFIG/'school-mode.json').read_text(), school)
         self.assertNotIn('/var/lib/peterholko-screen-time', m.UNIT.read_text())

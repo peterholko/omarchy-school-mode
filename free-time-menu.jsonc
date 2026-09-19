@@ -1,5 +1,6 @@
 {
   "apps": {"label":"Free Time","provider":"apps"},
+  "learn.keybindings": {"parent":"apps","icon":"","label":"Keybindings","action":"omarchy-shell shell call io.github.peterholko.school-mode showKeybindings \"\""},
   "trigger.capture": {"parent":"apps","icon":"","label":"Capture"},
   "trigger.capture.screenshot": {"icon":"","label":"Screenshot","action":"omarchy-capture-screenshot"},
   "trigger.capture.screenrecord.stop": {"icon":"","label":"Stop Screenrecording","when":"pgrep -f '^gpu-screen-recorder'","action":"omarchy-capture-screenrecording --stop-recording"},

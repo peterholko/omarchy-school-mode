@@ -79,7 +79,7 @@ def shortcuts_ready(mode):
     if marker.is_symlink() or not marker.is_file():
         return False
     lines = marker.read_text().splitlines()
-    if 'version=3' not in lines or f'mode={mode}' not in lines:
+    if 'version=4' not in lines or f'mode={mode}' not in lines:
         return False
     # A compositor reload discards the live bindings without removing files
     # in XDG_RUNTIME_DIR. Inspect the live layer as well as its receipt. Use
@@ -88,7 +88,8 @@ def shortcuts_ready(mode):
                     for line in command('hyprctl', 'binds').splitlines()
                     if line.strip().startswith('description: ')}
     return {'School / Free Time: Menu', 'School / Free Time: Apps',
-            'School / Free Time: Capture', 'School / Free Time: Screenrecording'} <= descriptions
+            'School / Free Time: Capture', 'School / Free Time: Screenrecording',
+            'School / Free Time: Keybindings'} <= descriptions
 
 
 def enter(journal, mode, effects=True):

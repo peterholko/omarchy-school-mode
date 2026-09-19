@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Use Omarchy's live shortcut listing in this plugin's searchable menu.
+# --print supplies display text only. No selection files or dispatcher
+# commands are passed to the viewer, so choosing a row only closes it.
+set -euo pipefail
+
+if ! bindings=$(omarchy-menu-keybindings --print); then
+  omarchy-notification-send "Could not load keybindings. Try again from the Omarchy desktop."
+  exit 1
+fi
+
+payload=$(printf '%s\n' "$bindings" | jq -Rs '{
+  mode: "select",
+  prompt: "Keybindings",
+  options: (split("\n") | map(rtrimstr("\r") | select(test("\\S")))
+    | if length == 0 then ["No keybindings available."] else . end),
+  width: 800,
+  maxHeight: 500
+}')
+
+omarchy-shell shell summon io.github.peterholko.school-mode "$payload"

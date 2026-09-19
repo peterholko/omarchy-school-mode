@@ -111,6 +111,8 @@ sys.exit(int(os.environ.get('CAPTURE_STOP_RC', '1')) if name == 'omarchy-capture
 
             self.assertEqual(run_binding("SUPER + CTRL + C"), [[
                 "omarchy-shell", "shell", "toggle", plugin, '{"menu":"trigger.capture"}']])
+            self.assertEqual(run_binding("SUPER + K"), [[
+                "omarchy-shell", "shell", "summon", plugin, '{"menu":"learn.keybindings"}']])
             self.assertEqual(run_binding("ALT + PRINT"), [
                 ["omarchy-capture-screenrecording", "--stop-recording"],
                 ["omarchy-shell", "shell", "toggle", plugin, '{"menu":"trigger.capture.screenrecord"}']])

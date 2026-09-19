@@ -120,7 +120,7 @@ class MenuTest(unittest.TestCase):
                         self.assertEqual(state["ids"], expected_ids)
                         self.assertNotIn("Discord", state["ids"])
                         self.assertTrue(state["menuPath"].endswith(f"/{mode if mode == 'school' else 'free-time'}-menu.jsonc"))
-            for route in ("setup", "trigger", "trigger.capture-unrestricted", "install", "learn.community"):
+            for route in ("setup", "setup.keybindings", "learn", "learn.keybindings-editor", "trigger", "trigger.capture-unrestricted", "install", "learn.community"):
                 state = self.invoke("route:" + route)
                 self.assertEqual(json.loads(state["payload"])["menu"], "apps")
             self.assertEqual(json.loads(self.invoke("route:style.theme")["payload"])["menu"], "style.theme")
@@ -135,7 +135,7 @@ class MenuTest(unittest.TestCase):
             entries = json.loads((ROOT / filename).read_text())
             self.assertEqual([item["provider"] for item in entries.values() if "provider" in item], ["apps"])
             self.assertEqual(entries["trigger.capture"]["parent"], "apps")
-            self.assertTrue(all(key == "apps" or key == "style" or key.startswith("style.")
+            self.assertTrue(all(key in ("apps", "style", "learn.keybindings") or key.startswith("style.")
                                 or key == "trigger.capture" or key.startswith("trigger.capture.") for key in entries))
             capture = {key: item for key, item in entries.items() if key.startswith("trigger.capture")}
             self.assertIn("pgrep", capture["trigger.capture.screenrecord.stop"]["when"])
@@ -143,6 +143,20 @@ class MenuTest(unittest.TestCase):
             self.assertTrue(all("omarchy.menu" not in item.get("action", "") for item in capture.values()))
             captures.append(capture)
         self.assertEqual(captures[0], captures[1])
+
+    def test_keybindings_route_and_helper_preserve_approved_apps(self):
+        self.load(True)
+        for mode in ("school", "free"):
+            self.invoke(mode)
+            expected_ids = self.invoke("inspect")["ids"]
+            for prefix, field in (("route:", "menu"), ("initial-route:", "initialMenu")):
+                state = self.invoke(prefix + "learn.keybindings")
+                self.assertEqual(json.loads(state["payload"])[field], "learn.keybindings")
+                self.assertEqual(state["ids"], expected_ids)
+            result = self.invoke("keybindings")
+            self.assertEqual(result["verdict"], "ok")
+            self.assertEqual(result["commands"][-1], ["bash", str(ROOT / "keybindings")])
+            self.assertEqual(self.invoke("inspect")["ids"], expected_ids)
 
     def test_confirmed_disabled_enrollment_restores_normal_launcher(self):
         self.load(True)

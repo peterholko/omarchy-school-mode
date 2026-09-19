@@ -173,7 +173,7 @@ Loader {
         var route = String(payload.initialMenu || payload.menu || "root")
         var styleRoute = route === "style" || route.indexOf("style.") === 0
         var captureRoute = route === "trigger.capture" || route.indexOf("trigger.capture.") === 0
-        if (!styleRoute && !captureRoute) route = "apps"
+        if (!styleRoute && !captureRoute && route !== "learn.keybindings") route = "apps"
         if (payload.initialMenu !== undefined) payload.initialMenu = route
         else payload.menu = route
         return JSON.stringify(payload)
@@ -186,6 +186,11 @@ Loader {
   function guardAppLaunch() {
     if (root.modeService && typeof root.modeService.guardAppLaunch === "function")
       root.modeService.guardAppLaunch()
+  }
+
+  function showKeybindings() {
+    Quickshell.execDetached(["bash", root.pluginRoot + "/keybindings"])
+    return "ok"
   }
 
   function launchSchoolBrowser() {
